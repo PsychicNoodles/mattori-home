@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use color_eyre::eyre::WrapErr;
 use eyre::Result;
-use rppal::gpio::Gpio;
+use rppal::gpio::{Gpio, Level};
 use tokio::sync::watch;
 use tokio::task::{spawn_blocking, JoinHandle};
 
@@ -43,11 +43,12 @@ impl<T: 'static + IrTarget> IrOut<T> {
                             error!("Could not get lock for ir output!");
                         }
                         Ok(mut o) => {
-                            for duration in seq.0.into_iter().map(|p| p.as_duration()) {
-                                o.set_low();
-                                sleep(IrPulse::LOW_DURATION);
-                                o.set_high();
-                                sleep(duration);
+                            for pulse in seq.0 {
+                                match pulse.level.into_inner() {
+                                    Level::Low => o.set_low(),
+                                    Level::High => o.set_high(),
+                                };
+                                sleep(Duration::from_micros(pulse.duration));
                             }
                             o.set_low();
                         }

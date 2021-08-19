@@ -1,94 +1,90 @@
-use serde_derive::Deserialize;
 use std::convert::TryFrom;
 use std::time::Duration;
+
+use rppal::gpio::Level;
+use serde::de::{self, Visitor};
+use serde::{Deserialize, Deserializer};
+use serde_derive::Deserialize;
+use std::cmp::Ordering;
+use std::fmt::Formatter;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Deserialize)]
-pub struct LowPulse(pub Duration);
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct IrLevel(pub Level);
 
-impl Default for LowPulse {
-    fn default() -> Self {
-        LowPulse(Duration::from_micros(4))
-    }
-}
+struct IrLevelVisitor {}
 
-#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Deserialize)]
-pub struct HighPulse(pub Duration);
-
-impl Default for HighPulse {
-    fn default() -> Self {
-        HighPulse(Duration::from_micros(15))
-    }
-}
-
-#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Deserialize)]
-#[serde(try_from = "i64")]
-pub enum IrPulse {
-    Low(LowPulse),
-    High(HighPulse),
-}
-
-#[derive(Error, Debug)]
-#[error("Invalid ir pulse: {input}")]
-pub struct InvalidIrPulse {
-    input: i64,
-}
-
-impl TryFrom<i64> for IrPulse {
-    type Error = InvalidIrPulse;
-
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
+impl IrLevelVisitor {
+    fn from_lowercase_str<E: de::Error>(value: &str) -> Result<IrLevel, E> {
         match value {
-            0 => Ok(IrPulse::Low(LowPulse::default())),
-            1 => Ok(IrPulse::High(HighPulse::default())),
-            _ => Err(InvalidIrPulse { input: value }),
+            "low" => Ok(IrLevel(Level::Low)),
+            "high" => Ok(IrLevel(Level::High)),
+            _ => Err(E::custom(format!("invalid string: {}", value))),
         }
     }
+}
+
+impl<'de> Visitor<'de> for IrLevelVisitor {
+    type Value = IrLevel;
+
+    fn expecting(&self, formatter: &mut Formatter) -> std::fmt::Result {
+        formatter.write_str("a case-insensitive string that is either \"low\" or \"high\"")
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Self::from_lowercase_str(v.to_lowercase().as_str())
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Self::from_lowercase_str(v.to_lowercase().as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for IrLevel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_string(IrLevelVisitor {})
+    }
+}
+
+impl IrLevel {
+    pub const fn into_inner(self) -> Level {
+        self.0
+    }
+}
+
+impl PartialOrd for IrLevel {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IrLevel {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.0, other.0) {
+            (Level::Low, Level::Low) | (Level::High, Level::High) => Ordering::Equal,
+            (Level::Low, Level::High) => Ordering::Less,
+            (Level::High, Level::Low) => Ordering::Greater,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Deserialize)]
+pub struct IrPulse {
+    pub level: IrLevel,
+    pub duration: u64,
 }
 
 impl IrPulse {
-    pub const MAX_WIDTH: usize = 17;
-    pub const LOW_DURATION: Duration = Duration::from_micros(4);
-
-    pub fn is_valid_low(count: usize) -> bool {
-        (3..=5).contains(&count)
-    }
-
-    pub const fn as_duration(&self) -> Duration {
-        match self {
-            IrPulse::Low(LowPulse(d)) | IrPulse::High(HighPulse(d)) => *d,
-        }
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum IrPulseError {
-    #[error("Zero width IR pulse")]
-    Zero,
-    #[error("Unknown IR pulse width")]
-    UnknownWidth,
-    #[error("Too long IR pulse width")]
-    TooLong,
-}
-
-impl TryFrom<usize> for IrPulse {
-    type Error = IrPulseError;
-
-    fn try_from(count: usize) -> Result<Self, Self::Error> {
-        if (3..=7).contains(&count) {
-            Ok(IrPulse::Low(LowPulse(Duration::from_micros(count as u64))))
-        } else if (14..=17).contains(&count) {
-            Ok(IrPulse::High(HighPulse(Duration::from_micros(
-                count as u64,
-            ))))
-        } else if count == 0 {
-            Err(IrPulseError::Zero)
-        } else if count > IrPulse::MAX_WIDTH {
-            Err(IrPulseError::TooLong)
-        } else {
-            Err(IrPulseError::UnknownWidth)
-        }
-    }
+    pub const MAX_WIDTH: u64 = 100;
 }
 
 #[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq)]

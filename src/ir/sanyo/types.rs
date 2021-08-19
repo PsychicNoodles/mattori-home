@@ -7,7 +7,7 @@ use serde_derive::Deserialize;
 use thiserror::Error;
 use toml::Value;
 
-use crate::ir::types::{ACMode, IrPulse, LowPulse, TemperatureCode};
+use crate::ir::types::{ACMode, IrPulse, TemperatureCode};
 
 const TEMPERATURE_CODE_SEQUENCES_RAW: &str = include_str!("temperature_code_sequences.toml");
 
@@ -181,25 +181,9 @@ pub struct SanyoTemperatureCodeSequence {
     pub off: Vec<IrPulse>,
 }
 
-const CODE_SEQUENCE_PREFIX: IrPulse = IrPulse::Low(LowPulse(Duration::from_micros(42)));
-
 lazy_static! {
     pub static ref SANYO_TEMPERATURE_CODES: HashMap<SanyoMode, HashMap<SanyoTemperatureCode, SanyoTemperatureCodeSequence>> = {
-        let mut data: HashMap<SanyoMode, HashMap<SanyoTemperatureCode, SanyoTemperatureCodeSequence>> =
-            toml::from_str(TEMPERATURE_CODE_SEQUENCES_RAW).expect("Could not parse Sanyo temperature code sequences");
-        // add prefix pulse to start of all sequences
-        for map in data.values_mut() {
-            for seqs in map.values_mut() {
-                if let Some(seq) = seqs.up.as_mut() {
-                    seq.insert(0, CODE_SEQUENCE_PREFIX);
-                }
-                if let Some(seq) = seqs.down.as_mut() {
-                    seq.insert(0, CODE_SEQUENCE_PREFIX);
-                }
-                seqs.on.insert(0, CODE_SEQUENCE_PREFIX);
-                seqs.off.insert(0, CODE_SEQUENCE_PREFIX);
-            }
-        }
-        data
+        toml::from_str(TEMPERATURE_CODE_SEQUENCES_RAW)
+            .expect("Could not parse Sanyo temperature code sequences")
     };
 }

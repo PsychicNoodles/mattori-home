@@ -1,20 +1,29 @@
-use crate::ir::types::{IrPulse, IrPulseError};
-use async_stream::try_stream;
+use std::convert::TryFrom;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::{Duration, Instant};
+
+use async_stream::{stream, try_stream};
 use eyre::{eyre, Result, WrapErr};
 use futures::Stream;
-use rppal::gpio::{Gpio, Level};
-use std::convert::TryFrom;
-use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Duration;
-use std::{sync::mpsc, thread::sleep};
+use rppal::gpio::{Gpio, InputPin, Level, Trigger};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{broadcast, mpsc, Notify, OnceCell};
+use tokio::time::sleep;
 use tokio::{
+    pin,
     sync::watch,
-    task::{spawn_blocking, JoinHandle},
+    task::{spawn, spawn_blocking, JoinHandle},
 };
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
-pub type PulseSequence = Arc<Vec<IrPulse>>;
+use crate::ir::types::{IrLevel, IrPulse};
 
-const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
+pub type PulseSequence = Arc<Vec<Duration>>;
+
+const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
+const DEBOUNCE: Duration = Duration::from_micros(100);
+const MAX_PULSE: Duration = Duration::from_millis(10);
 
 pub struct IrIn {
     read_handle: JoinHandle<()>,
@@ -23,9 +32,15 @@ pub struct IrIn {
     pulse_added_receiver: watch::Receiver<Option<PulseSequence>>,
 }
 
+#[derive(Debug, Clone)]
+enum IrInterruptMessage {
+    Pulse(Duration),
+    Timeout,
+}
+
 impl IrIn {
     pub fn start(pin: u8) -> Result<IrIn> {
-        let ir = Gpio::new()
+        let mut ir = Gpio::new()
             .wrap_err("Could not initialize gpio")?
             .get(pin)
             .wrap_err_with(|| format!("Could not get gpio pin {}", pin))?
@@ -35,102 +50,65 @@ impl IrIn {
         let (pulse_added_sender, pulse_added_receiver) = watch::channel(None);
         let read_handle = {
             let pulses = pulses.clone();
-            spawn_blocking(move || {
-                let (ir_input_sender, ir_input_receiver) = mpsc::channel();
-                spawn_blocking(move || loop {
-                    if let Err(_) = ir_input_sender.send(ir.read()) {
-                        info!("ir input reader closed");
-                        break;
-                    }
-                    sleep(Duration::from_micros(1));
-                });
+            spawn(async move {
+                let (ir_pulse_sender, ir_pulse_receiver) = mpsc::unbounded_channel();
+                let timeout_handle =
+                    match Self::start_ir_interrupt_handler(&mut ir, ir_pulse_sender) {
+                        Err(e) => {
+                            error!("failed to start ir interrupt handler: {:?}", e);
+                            return;
+                        }
+                        Ok(h) => h,
+                    };
+                pin! {
+                    let ir_pulse_stream = Self::debounce(UnboundedReceiverStream::new(ir_pulse_receiver)).map(Self::normalize);
+                }
 
                 let mut sequence = Vec::new();
-                let mut last = None;
-                let mut count = 0;
                 loop {
                     if *read_stop_receiver.borrow() {
                         trace!("stopping ir receiver thread");
                         break;
                     }
 
-                    match ir_input_receiver.recv_timeout(WAIT_TIMEOUT) {
-                        Ok(pulse) => match last {
-                            Some(lst) if lst == pulse => {
-                                count += 1;
-                                if count > IrPulse::MAX_WIDTH {
-                                    // pulse is too long, so must be end of sequence
-                                    if sequence.is_empty() {
-                                        // no pulses yet so must be waiting for input
-                                    } else {
-                                        match pulses.write() {
-                                            Err(_) => {
-                                                error!(
-                                                    "could not get write lock for pulses vector"
-                                                );
-                                                break;
-                                            }
-                                            Ok(mut lock) => {
-                                                trace!("finished sequence {:?}", sequence);
-                                                let finished_sequence = Arc::new(sequence.clone());
-                                                lock.push(finished_sequence.clone());
-                                                if let Err(e) =
-                                                    pulse_added_sender.send(Some(finished_sequence))
-                                                {
-                                                    error!(
-                                                    "could not send to pulse added sender: {:?}",
-                                                    e
-                                                );
-                                                }
-                                                sequence.clear();
-                                            }
-                                        }
-                                    }
-                                }
+                    match ir_pulse_stream.next().await {
+                        Some(IrInterruptMessage::Pulse(duration)) => {
+                            if duration > MAX_PULSE {
+                                info!("pulse duration is huge ({}ms), probably from waiting for signal so skipping", duration.as_micros());
+                            } else {
+                                sequence.push(duration);
                             }
-                            Some(_) => {
-                                if pulse == Level::High {
-                                    // end of Low pulse
-                                    if !IrPulse::is_valid_low(count) {
-                                        error!("unknown low ir pulse width ({})", count);
-                                    }
-                                    count = 1;
-                                } else {
-                                    // end of High pulse
-                                    match IrPulse::try_from(count) {
-                                        Ok(value) => {
-                                            trace!("adding to sequence {:?}", value);
-                                            sequence.push(value);
-                                        }
-                                        Err(IrPulseError::Zero) => {
-                                            info!(
-                                            "zero length ir pulse, probably initial reader setup"
-                                        );
-                                        }
-                                        Err(IrPulseError::TooLong) => {
-                                            error!("too long ir pulse, possibly gap between button presses ({})", count);
-                                        }
-                                        Err(IrPulseError::UnknownWidth) => {
-                                            error!("unknown ir pulse width ({})", count);
-                                        }
-                                    }
-                                    count = 0;
-                                }
-                                last = Some(pulse);
-                            }
-                            None => {
-                                trace!("initial reader setup");
-                                last = Some(pulse);
-                            }
-                        },
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            // nothing from the ir for a bit, so loop to check if stop received
                         }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        Some(IrInterruptMessage::Timeout) => {
+                            if !sequence.is_empty() {
+                                match pulses.write() {
+                                    Err(_) => {
+                                        error!("could not get write lock for pulses vector");
+                                        break;
+                                    }
+                                    Ok(mut lock) => {
+                                        trace!("finished sequence {:?}", sequence);
+                                        let finished_sequence = Arc::new(sequence.clone());
+                                        lock.push(finished_sequence.clone());
+                                        if let Err(e) =
+                                            pulse_added_sender.send(Some(finished_sequence))
+                                        {
+                                            error!("could not send to pulse added sender: {:?}", e);
+                                        }
+                                        sequence.clear();
+                                    }
+                                }
+                            }
+                        }
+                        None => {
                             info!("ir input reader disconnected before processing thread");
                             break;
                         }
                     }
+                }
+                timeout_handle.abort();
+                if let Err(e) = ir.clear_async_interrupt() {
+                    error!("could not clear ir interrupt handler: {:?}", e);
                 }
             })
         };
@@ -140,6 +118,109 @@ impl IrIn {
             pulses,
             pulse_added_receiver,
         })
+    }
+
+    fn start_ir_interrupt_handler(
+        mut ir: &mut InputPin,
+        ir_pulse_sender: UnboundedSender<IrInterruptMessage>,
+    ) -> Result<JoinHandle<()>> {
+        let mut last_inst = Instant::now();
+        let mut last_level = Level::Low;
+        let timeout_reset_notify = Arc::new(Notify::new());
+        let timeout_handle = {
+            let timeout_sender = ir_pulse_sender.clone();
+            let timeout_reset_notify = timeout_reset_notify.clone();
+            spawn(async move {
+                // wait for start from interrupt handler
+                timeout_reset_notify.notified().await;
+                loop {
+                    tokio::select! {
+                        _ = sleep(WAIT_TIMEOUT) => {
+                            if let Err(_) = timeout_sender.send(IrInterruptMessage::Timeout) {
+                                info!("ir input timeout sender closed unexpectedly");
+                            }
+                        },
+                        _ = timeout_reset_notify.notified() => {
+                            trace!("timeout reset");
+                        }
+                    }
+                }
+            })
+        };
+
+        let mut init = true;
+        ir.set_async_interrupt(Trigger::Both, move |level| {
+            let now = Instant::now();
+
+            if let Err(_) =
+                ir_pulse_sender.send(IrInterruptMessage::Pulse(now.duration_since(last_inst)))
+            {
+                info!("ir input reader closed");
+            }
+
+            last_inst = now;
+            last_level = level;
+            if init {
+                timeout_reset_notify.notify_one();
+            }
+        })
+        .wrap_err("Could not set up ir interrupt handler")?;
+        Ok(timeout_handle)
+    }
+
+    fn debounce<T: Stream<Item = IrInterruptMessage> + Unpin>(
+        mut input_stream: T,
+    ) -> impl Stream<Item = IrInterruptMessage> {
+        stream! {
+            let mut last: Option<Duration> = None;
+            while let Some(input) = input_stream.next().await {
+                match input {
+                    IrInterruptMessage::Timeout => {
+                        if let Some(l) = last {
+                            yield IrInterruptMessage::Pulse(l);
+                            last = None;
+                        }
+                        yield IrInterruptMessage::Timeout;
+                    },
+                    IrInterruptMessage::Pulse(duration) => {
+                        match last.as_mut() {
+                            Some(l) if *l + duration > DEBOUNCE => {
+                                yield IrInterruptMessage::Pulse(*l + duration);
+                                last = None;
+                            },
+                            Some(l) => {
+                                *l += duration;
+                            },
+                            None if duration > DEBOUNCE => {
+                                yield IrInterruptMessage::Pulse(duration);
+                            },
+                            None => {
+                                last = Some(duration);
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn normalize(input: IrInterruptMessage) -> IrInterruptMessage {
+        fn round(i: u128, fac: u128) -> u128 {
+            match i % fac {
+                rem if rem >= fac / 2 => i + (fac - rem),
+                rem => i - rem,
+            }
+        }
+        match input {
+            IrInterruptMessage::Pulse(duration) => {
+                IrInterruptMessage::Pulse(Duration::from_micros(match duration.as_micros() {
+                    m if m < 1000 => round(m, 10),
+                    m if m < 2000 => round(m, 50),
+                    m => round(m, 200),
+                } as u64))
+            }
+            IrInterruptMessage::Timeout => IrInterruptMessage::Timeout,
+        }
     }
 
     pub async fn stop(&mut self) -> Result<()> {
