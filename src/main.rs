@@ -5,9 +5,7 @@ extern crate log;
 extern crate lazy_static;
 
 use crate::ir::output::IrOut;
-use crate::ir::sanyo::sanyo::Sanyo;
-use crate::ir::sanyo::types::SanyoTemperatureCode;
-use crate::ir::types::{IrSequence, IrTarget};
+use crate::ir::types::{Aeha, IrFormat, IrSequence, IrTarget};
 use futures::{pin_mut, StreamExt};
 use ir::input::IrIn;
 use lcd::Lcd;
@@ -15,6 +13,7 @@ use rppal::gpio::{Gpio, Level};
 use rppal::i2c::I2c;
 use std::fs::File;
 use std::io::Write;
+use std::ops::Deref;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -43,11 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ir_stream = ir.pulse_stream();
     pin_mut!(ir_stream);
     let pulse_seq = ir_stream.next().await.unwrap().unwrap().unwrap();
+    ir.stop().await?;
     println!(
         "pulse seq: {:?}",
-        pulse_seq.iter().map(|p| p.as_micros()).collect::<Vec<_>>()
+        pulse_seq.iter().map(|p| p.into_inner()).collect::<Vec<_>>()
     );
-    ir.stop().await?;
+    println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
     // sleep(Duration::from_secs(3));
     // let out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
     // let vec = (*pulse_seq).clone();

@@ -9,6 +9,7 @@ use tokio::sync::watch;
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::ir::types::{IrPulse, IrSequence, IrTarget};
+use num_traits::PrimInt;
 
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
 
@@ -43,14 +44,14 @@ impl<T: 'static + IrTarget> IrOut<T> {
                             error!("Could not get lock for ir output!");
                         }
                         Ok(mut o) => {
-                            for pulse in seq.0 {
-                                match pulse.level.into_inner() {
-                                    Level::Low => o.set_low(),
-                                    Level::High => o.set_high(),
-                                };
-                                sleep(Duration::from_micros(pulse.duration));
-                            }
-                            o.set_low();
+                            // for pulse in seq.0 {
+                            //     match pulse.level.into_inner() {
+                            //         Level::Low => o.set_low(),
+                            //         Level::High => o.set_high(),
+                            //     };
+                            //     sleep(Duration::from_micros(pulse.duration));
+                            // }
+                            // o.set_low();
                         }
                     });
                 }

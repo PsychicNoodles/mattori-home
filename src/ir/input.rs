@@ -17,9 +17,10 @@ use tokio::{
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
-use crate::ir::types::{IrLevel, IrPulse};
+use crate::ir::types::IrPulse;
+use num_traits::PrimInt;
 
-pub type PulseSequence = Arc<Vec<Duration>>;
+pub type IrPulseSequence = Arc<Vec<IrPulse>>;
 
 const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
 const DEBOUNCE: Duration = Duration::from_micros(100);
@@ -28,8 +29,8 @@ const MAX_PULSE: Duration = Duration::from_millis(10);
 pub struct IrIn {
     read_handle: JoinHandle<()>,
     read_stop_sender: watch::Sender<bool>,
-    pulses: Arc<RwLock<Vec<PulseSequence>>>,
-    pulse_added_receiver: watch::Receiver<Option<PulseSequence>>,
+    pulses: Arc<RwLock<Vec<IrPulseSequence>>>,
+    pulse_added_receiver: watch::Receiver<Option<IrPulseSequence>>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,7 +77,7 @@ impl IrIn {
                             if duration > MAX_PULSE {
                                 info!("pulse duration is huge ({}ms), probably from waiting for signal so skipping", duration.as_micros());
                             } else {
-                                sequence.push(duration);
+                                sequence.push(IrPulse(duration.as_micros()));
                             }
                         }
                         Some(IrInterruptMessage::Timeout) => {
@@ -168,8 +169,8 @@ impl IrIn {
         Ok(timeout_handle)
     }
 
-    fn debounce<T: Stream<Item = IrInterruptMessage> + Unpin>(
-        mut input_stream: T,
+    fn debounce<S: Stream<Item = IrInterruptMessage> + Unpin>(
+        mut input_stream: S,
     ) -> impl Stream<Item = IrInterruptMessage> {
         stream! {
             let mut last: Option<Duration> = None;
@@ -232,19 +233,19 @@ impl IrIn {
             .wrap_err("Could not wait for read thread to stop")
     }
 
-    pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<PulseSequence>>> {
+    pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<IrPulseSequence>>> {
         self.pulses
             .read()
             .map_err(|_| eyre!("Tried to acquire read lock to pulses vector"))
     }
 
-    pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<PulseSequence>>> {
+    pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<IrPulseSequence>>> {
         self.pulses
             .write()
             .map_err(|_| eyre!("Tried to acquire write lock to pulses vector"))
     }
 
-    pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<PulseSequence>>> {
+    pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<IrPulseSequence>>> {
         let mut receiver = self.pulse_added_receiver.clone();
         try_stream! {
             loop {
