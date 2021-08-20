@@ -1,5 +1,8 @@
 use thiserror::Error;
 
+use crate::ir::sanyo::types::{
+    SanyoMode, SanyoTemperatureCode, SanyoTrigger, SANYO_TEMPERATURE_CODES,
+};
 use crate::ir::types::{IrPulse, IrSequence, IrTarget, TemperatureCode};
 use core::mem;
 use std::cmp::Ordering;
@@ -492,80 +495,80 @@ pub enum SanyoError {
     Internal(&'static str),
 }
 
-// #[derive(Debug, Default)]
-// pub struct Sanyo {
-//     powered: bool,
-//     mode: SanyoMode,
-//     temp: SanyoTemperatureCode,
-// }
-//
-// impl Sanyo {
-//     fn as_ir_sequence(
-//         &self,
-//         trigger: SanyoTrigger,
-//     ) -> Result<IrSequence, <Sanyo as IrTarget>::Error> {
-//         let seqs = SANYO_TEMPERATURE_CODES
-//             .get(&self.mode)
-//             .ok_or(SanyoError::Internal("Unimplemented mode"))?
-//             .get(&self.temp)
-//             .ok_or(SanyoError::Internal("Unimplemented temperature code"))?;
-//         Ok(IrSequence(match trigger {
-//             SanyoTrigger::Up => seqs
-//                 .up
-//                 .as_ref()
-//                 .ok_or(SanyoError::TemperatureRange)?
-//                 .clone(),
-//             SanyoTrigger::Down => seqs
-//                 .down
-//                 .as_ref()
-//                 .ok_or(SanyoError::TemperatureRange)?
-//                 .clone(),
-//             SanyoTrigger::On => seqs.on.clone(),
-//             SanyoTrigger::Off => seqs.off.clone(),
-//         }))
-//     }
-// }
-//
-// impl IrTarget for Sanyo {
-//     type Error = SanyoError;
-//     type Temperature = SanyoTemperatureCode;
-//     type Mode = SanyoMode;
-//     const SEQ_LENGTH: usize = 136;
-//
-//     fn power_off(&mut self) -> Result<IrSequence, Self::Error> {
-//         self.as_ir_sequence(SanyoTrigger::Off)
-//     }
-//
-//     fn power_on(&mut self) -> Result<IrSequence, Self::Error> {
-//         self.as_ir_sequence(SanyoTrigger::On)
-//     }
-//
-//     fn temp_up(&mut self) -> Result<IrSequence, Self::Error> {
-//         self.temp = self.temp.up().ok_or(SanyoError::TemperatureRange)?;
-//         self.as_ir_sequence(SanyoTrigger::Up)
-//     }
-//
-//     fn temp_down(&mut self) -> Result<IrSequence, Self::Error> {
-//         self.temp = self.temp.down().ok_or(SanyoError::TemperatureRange)?;
-//         self.as_ir_sequence(SanyoTrigger::Down)
-//     }
-//
-//     fn temp_set(&mut self, temp: Self::Temperature) -> Result<IrSequence, Self::Error> {
-//         let trigger = match self.temp.cmp(&temp) {
-//             Ordering::Less => SanyoTrigger::Down,
-//             Ordering::Equal => return Err(SanyoError::TemperatureSame),
-//             Ordering::Greater => SanyoTrigger::Up,
-//         };
-//         self.temp = temp;
-//         self.as_ir_sequence(trigger)
-//     }
-//
-//     fn mode_set(&mut self, mode: Self::Mode) -> Result<IrSequence, Self::Error> {
-//         self.mode = mode;
-//         // TODO fix
-//         self.as_ir_sequence(SanyoTrigger::On)
-//     }
-// }
+#[derive(Debug, Default)]
+pub struct Sanyo {
+    powered: bool,
+    mode: SanyoMode,
+    temp: SanyoTemperatureCode,
+}
+
+impl Sanyo {
+    fn as_ir_sequence(
+        &self,
+        trigger: SanyoTrigger,
+    ) -> Result<IrSequence, <Sanyo as IrTarget>::Error> {
+        let seqs = SANYO_TEMPERATURE_CODES
+            .get(&self.mode)
+            .ok_or(SanyoError::Internal("Unimplemented mode"))?
+            .get(&self.temp)
+            .ok_or(SanyoError::Internal("Unimplemented temperature code"))?;
+        Ok(IrSequence(match trigger {
+            SanyoTrigger::Up => seqs
+                .up
+                .as_ref()
+                .ok_or(SanyoError::TemperatureRange)?
+                .clone(),
+            SanyoTrigger::Down => seqs
+                .down
+                .as_ref()
+                .ok_or(SanyoError::TemperatureRange)?
+                .clone(),
+            SanyoTrigger::On => seqs.on.clone(),
+            SanyoTrigger::Off => seqs.off.clone(),
+        }))
+    }
+}
+
+impl IrTarget for Sanyo {
+    type Error = SanyoError;
+    type Temperature = SanyoTemperatureCode;
+    type Mode = SanyoMode;
+    const SEQ_LENGTH: usize = 136;
+
+    fn power_off(&mut self) -> Result<IrSequence, Self::Error> {
+        self.as_ir_sequence(SanyoTrigger::Off)
+    }
+
+    fn power_on(&mut self) -> Result<IrSequence, Self::Error> {
+        self.as_ir_sequence(SanyoTrigger::On)
+    }
+
+    fn temp_up(&mut self) -> Result<IrSequence, Self::Error> {
+        self.temp = self.temp.up().ok_or(SanyoError::TemperatureRange)?;
+        self.as_ir_sequence(SanyoTrigger::Up)
+    }
+
+    fn temp_down(&mut self) -> Result<IrSequence, Self::Error> {
+        self.temp = self.temp.down().ok_or(SanyoError::TemperatureRange)?;
+        self.as_ir_sequence(SanyoTrigger::Down)
+    }
+
+    fn temp_set(&mut self, temp: Self::Temperature) -> Result<IrSequence, Self::Error> {
+        let trigger = match self.temp.cmp(&temp) {
+            Ordering::Less => SanyoTrigger::Down,
+            Ordering::Equal => return Err(SanyoError::TemperatureSame),
+            Ordering::Greater => SanyoTrigger::Up,
+        };
+        self.temp = temp;
+        self.as_ir_sequence(trigger)
+    }
+
+    fn mode_set(&mut self, mode: Self::Mode) -> Result<IrSequence, Self::Error> {
+        self.mode = mode;
+        // TODO fix
+        self.as_ir_sequence(SanyoTrigger::On)
+    }
+}
 
 // mod test {
 //     use super::*;

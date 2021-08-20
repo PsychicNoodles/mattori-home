@@ -35,6 +35,12 @@ impl AsPrimitive<f64> for IrPulse {
 #[derive(Debug, Clone, PartialOrd, PartialEq, Deserialize)]
 pub struct IrSequence(pub Vec<IrPulse>);
 
+impl IrSequence {
+    pub fn into_inner(self) -> Vec<IrPulse> {
+        self.0
+    }
+}
+
 // target
 
 pub trait TemperatureCode {}

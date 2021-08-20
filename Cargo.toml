@@ -6,7 +6,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rppal = "0.12"
+rppal = { git = "https://github.com/PsychicNoodles/rppal.git" }
 eyre = "0.6"
 color-eyre = "0.5"
 thiserror = "1"

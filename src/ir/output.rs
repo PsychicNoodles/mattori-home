@@ -4,11 +4,12 @@ use std::time::Duration;
 
 use color_eyre::eyre::WrapErr;
 use eyre::Result;
-use rppal::gpio::{Gpio, Level};
+use rppal::gpio::{Gpio, Level, PwmPulse, PwmWave};
 use tokio::sync::watch;
 use tokio::task::{spawn_blocking, JoinHandle};
 
 use crate::ir::types::{IrPulse, IrSequence, IrTarget};
+use core::iter;
 use num_traits::PrimInt;
 
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
@@ -44,6 +45,30 @@ impl<T: 'static + IrTarget> IrOut<T> {
                             error!("Could not get lock for ir output!");
                         }
                         Ok(mut o) => {
+                            if let Err(e) = o.set_pwm(
+                                seq.into_inner().into_iter().enumerate().fold(
+                                    Vec::new(),
+                                    |mut acc, (i, pulse)| {
+                                        if i % 2 == 0 {
+                                            acc.extend(
+                                                iter::repeat(PwmWave::Pulse(PwmPulse {
+                                                    period: Duration::from_micros(18),
+                                                    pulse_width: Duration::from_micros(8),
+                                                }))
+                                                .take((pulse.into_inner() / 26) as usize),
+                                            );
+                                        } else {
+                                            acc.push(PwmWave::Wait(Duration::from_micros(
+                                                pulse.0 as u64,
+                                            )));
+                                        }
+                                        acc
+                                    },
+                                ),
+                                false,
+                            ) {
+                                error!("Could not set up pwm for ir output: {:?}", e);
+                            }
                             // for pulse in seq.0 {
                             //     match pulse.level.into_inner() {
                             //         Level::Low => o.set_low(),

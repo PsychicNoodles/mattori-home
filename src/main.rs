@@ -5,6 +5,7 @@ extern crate log;
 extern crate lazy_static;
 
 use crate::ir::output::IrOut;
+use crate::ir::sanyo::sanyo::Sanyo;
 use crate::ir::types::{Aeha, IrFormat, IrSequence, IrTarget};
 use futures::{pin_mut, StreamExt};
 use ir::input::IrIn;
@@ -48,10 +49,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pulse_seq.iter().map(|p| p.into_inner()).collect::<Vec<_>>()
     );
     println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
-    // sleep(Duration::from_secs(3));
-    // let out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
-    // let vec = (*pulse_seq).clone();
-    // out.send(IrSequence(vec))?;
+    sleep(Duration::from_secs(3));
+    let out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
+    let vec = (*pulse_seq).clone();
+    out.send(IrSequence(vec))?;
+    sleep(Duration::from_secs(2));
 
     // for i in 0.. {
     //     match ir_stream.next().await {

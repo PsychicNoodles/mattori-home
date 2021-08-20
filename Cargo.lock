@@ -463,8 +463,7 @@ checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 [[package]]
 name = "rppal"
 version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb26758c881b4837b2f4aef569e4251f75388e36b37204e1804ef429c220121c"
+source = "git+https://github.com/PsychicNoodles/rppal.git#73d997df674f83698c0e4291342fdeb02c654b3a"
 dependencies = [
  "lazy_static",
  "libc",
