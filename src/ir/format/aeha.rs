@@ -18,7 +18,7 @@ impl IrFormat for Aeha {
 
     fn decode<T: AsRef<[IrPulse]>>(data: T) -> Result<IrPulseBytes, IrDecodeError> {
         struct DecodeState {
-            frames: Vec<Vec<u8>>,
+            frames: Vec<u8>,
             byte_list: Vec<u8>,
             byte: u8,
             bit_counter: usize,
@@ -27,15 +27,12 @@ impl IrFormat for Aeha {
         enum DecodeStep {
             Error(IrDecodeError),
             Continue(DecodeState),
-            Finished(Vec<Vec<u8>>),
+            Finished(Vec<u8>),
         }
 
         let data = data.as_ref();
         if data.len() < 10 {
             return Err(IrDecodeError::TooShort);
-        }
-        if data.len() % 2 == 0 {
-            return Err(IrDecodeError::EvenInputs);
         }
 
         let res = data
@@ -56,6 +53,7 @@ impl IrFormat for Aeha {
                     e @ DecodeStep::Error(_) => e,
                     f @ DecodeStep::Finished(_) => f,
                     DecodeStep::Continue(mut state) => {
+                        trace!("cont decode {:?}", pulses);
                         if state.end_of_frame {
                             match pulses {
                                 (p1, Some(p2)) => {
@@ -75,8 +73,7 @@ impl IrFormat for Aeha {
                                         if AsPrimitive::<usize>::as_(p2.0)
                                             > (<Self as IrFormat>::WAIT_LENGTH / 2) as usize
                                         {
-                                            state.frames.push(state.byte_list);
-                                            state.byte_list = vec![];
+                                            state.frames.append(&mut state.byte_list);
                                             state.byte = 0;
                                             state.end_of_frame = true;
                                             DecodeStep::Continue(state)
@@ -105,7 +102,7 @@ impl IrFormat for Aeha {
                                 (p1, None) => {
                                     // stop length + bit counter = byte length
                                     if Self::in_bounds(*p1, 1) && state.bit_counter == 0 {
-                                        state.frames.push(state.byte_list);
+                                        state.frames.append(&mut state.byte_list);
                                         DecodeStep::Finished(state.frames)
                                     } else {
                                         DecodeStep::Error(IrDecodeError::InvalidBits)
@@ -123,17 +120,13 @@ impl IrFormat for Aeha {
         }
     }
 
-    fn encode<T: AsRef<[Vec<u8>]>>(bytes: T) -> Result<IrSequence, IrEncodeError> {
+    fn encode<T: AsRef<[u8]>>(bytes: T) -> Result<IrSequence, IrEncodeError> {
         bytes
             .as_ref()
             .iter()
-            .fold(Ok((Vec::new(), true)), |res, bytes| match res {
+            .fold(Ok((Vec::new(), true)), |res, byte| match res {
                 e @ Err(_) => e,
                 Ok((mut code, is_first)) => {
-                    if bytes.is_empty() {
-                        return Err(IrEncodeError::EmptyFrame);
-                    }
-
                     if is_first {
                         code.push(Self::WAIT_LENGTH);
                     }
@@ -143,17 +136,15 @@ impl IrFormat for Aeha {
                     code.push(Self::STD_CYCLE * 4);
 
                     // data
-                    for byte in bytes {
-                        let mut bits = *byte;
-                        for _ in 0..8 {
+                    let mut bits = *byte;
+                    for _ in 0..8 {
+                        code.push(Self::STD_CYCLE);
+                        if (bits & 1) == 0 {
                             code.push(Self::STD_CYCLE);
-                            if (bits & 1) == 0 {
-                                code.push(Self::STD_CYCLE);
-                            } else {
-                                code.push(Self::STD_CYCLE * 3);
-                            }
-                            bits >>= 1;
+                        } else {
+                            code.push(Self::STD_CYCLE * 3);
                         }
+                        bits >>= 1;
                     }
 
                     // stop bit

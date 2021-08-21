@@ -1,15 +1,13 @@
-use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use serde_derive::Deserialize;
+use cached::proc_macro::cached;
 use thiserror::Error;
+use tokio::sync::OnceCell;
 
 use crate::ir::types::{ACMode, IrPulse, TemperatureCode};
+use std::array::IntoIter;
 
-const TEMPERATURE_CODE_SEQUENCES_RAW: &str = include_str!("temperature_code_sequences.toml");
-
-#[derive(Deserialize, Debug, Hash, Eq, PartialEq)]
-#[serde(try_from = "String")]
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
 pub enum SanyoMode {
     Cool,
 }
@@ -39,8 +37,7 @@ impl TryFrom<String> for SanyoMode {
     }
 }
 
-#[derive(Deserialize, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(try_from = "String")]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SanyoTemperatureCode {
     T16,
     T17,
@@ -57,6 +54,12 @@ pub enum SanyoTemperatureCode {
     T28,
     T29,
     T30,
+}
+
+impl SanyoTemperatureCode {
+    pub fn ind(&self) -> u8 {
+        u8::from(self) - 16
+    }
 }
 
 impl Default for SanyoTemperatureCode {
@@ -95,6 +98,28 @@ impl TryFrom<String> for SanyoTemperatureCode {
             "29" => Ok(T29),
             "30" => Ok(T30),
             _ => Err(InvalidSanyoTemperatureCode { input: value }),
+        }
+    }
+}
+
+impl From<&SanyoTemperatureCode> for u8 {
+    fn from(code: &SanyoTemperatureCode) -> Self {
+        match code {
+            SanyoTemperatureCode::T16 => 16,
+            SanyoTemperatureCode::T17 => 17,
+            SanyoTemperatureCode::T18 => 18,
+            SanyoTemperatureCode::T19 => 19,
+            SanyoTemperatureCode::T20 => 20,
+            SanyoTemperatureCode::T21 => 21,
+            SanyoTemperatureCode::T22 => 22,
+            SanyoTemperatureCode::T23 => 23,
+            SanyoTemperatureCode::T24 => 24,
+            SanyoTemperatureCode::T25 => 25,
+            SanyoTemperatureCode::T26 => 26,
+            SanyoTemperatureCode::T27 => 27,
+            SanyoTemperatureCode::T28 => 28,
+            SanyoTemperatureCode::T29 => 29,
+            SanyoTemperatureCode::T30 => 30,
         }
     }
 }
@@ -163,6 +188,7 @@ impl SanyoTemperatureCode {
     }
 }
 
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SanyoTrigger {
     Up,
     Down,
@@ -170,7 +196,7 @@ pub enum SanyoTrigger {
     Off,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub struct SanyoTemperatureCodeSequence {
     pub up: Option<Vec<IrPulse>>,
     pub down: Option<Vec<IrPulse>>,
@@ -179,8 +205,80 @@ pub struct SanyoTemperatureCodeSequence {
 }
 
 lazy_static! {
-    pub static ref SANYO_TEMPERATURE_CODES: HashMap<SanyoMode, HashMap<SanyoTemperatureCode, SanyoTemperatureCodeSequence>> = {
-        toml::from_str(TEMPERATURE_CODE_SEQUENCES_RAW)
-            .expect("Could not parse Sanyo temperature code sequences")
+    static ref BASE_SEQUENCE: [OnceCell<u8>; 17] = [
+        OnceCell::new_with(Some(64)),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new_with(Some(20)),
+        OnceCell::new_with(Some(128)),
+        OnceCell::new_with(Some(67)),
+        OnceCell::new(),
+        OnceCell::new(),
+        OnceCell::new_with(Some(64)),
+        OnceCell::new(),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new_with(Some(104)),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new_with(Some(1)),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new_with(Some(0)),
+        OnceCell::new(),
+    ];
+}
+
+fn build_sequence(byte5: u8, byte6: u8, byte8: u8, byte16: u8) -> Vec<u8> {
+    let seq = BASE_SEQUENCE.clone();
+    seq[5]
+        .set(byte5)
+        .expect("Whoopsie setting up Sanyo sequence! Tried setting an already set byte!");
+    seq[6]
+        .set(byte6)
+        .expect("Whoopsie setting up Sanyo sequence! Tried setting an already set byte!");
+    seq[8]
+        .set(byte8)
+        .expect("Whoopsie setting up Sanyo sequence! Tried setting an already set byte!");
+    seq[16]
+        .set(byte16)
+        .expect("Whoopsie setting up Sanyo sequence! Tried setting an already set byte!");
+    IntoIter::new(seq)
+        .map(|oc| {
+            oc.into_inner()
+                .expect("Whoospie setting up Sanyo sequence! Not all the bytes were set!")
+        })
+        .collect()
+}
+
+#[cached]
+pub fn sanyo_sequence(
+    mode: SanyoMode,
+    temperature: SanyoTemperatureCode,
+    trigger: SanyoTrigger,
+) -> Vec<u8> {
+    // todo determine how mode affects values
+    let _ = match mode {
+        SanyoMode::Cool => (),
     };
+    let temperature_ind = temperature.ind() * 2;
+    build_sequence(
+        match trigger {
+            SanyoTrigger::Down | SanyoTrigger::Up => 132,
+            SanyoTrigger::Off => 133,
+            SanyoTrigger::On => 134,
+        },
+        24 + temperature_ind,
+        match trigger {
+            SanyoTrigger::Off => 3,
+            SanyoTrigger::Down | SanyoTrigger::On | SanyoTrigger::Up => 35,
+        },
+        match temperature {
+            SanyoTemperatureCode::T16
+            | SanyoTemperatureCode::T17
+            | SanyoTemperatureCode::T18
+            | SanyoTemperatureCode::T19 => 60 + temperature_ind,
+            SanyoTemperatureCode::T28 | SanyoTemperatureCode::T29 | SanyoTemperatureCode::T30 => {
+                54 + temperature_ind
+            }
+            _ => 53 + temperature_ind,
+        },
+    )
 }

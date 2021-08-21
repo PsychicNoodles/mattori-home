@@ -111,6 +111,7 @@ impl<T: 'static + IrTarget> IrOut<T> {
         mut action: F,
     ) -> Result<()> {
         let sequence = action(&mut self.target)?;
+        debug!("sending sequence: {:?}", sequence);
         self.send(sequence)
     }
 }

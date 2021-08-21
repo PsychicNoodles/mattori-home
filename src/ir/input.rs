@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use async_stream::{stream, try_stream};
 use eyre::{eyre, Result, WrapErr};
 use futures::Stream;
-use rppal::gpio::{Gpio, InputPin, Level, Trigger};
+use rppal::gpio::{Gpio, InputPin, Trigger};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, Notify};
 use tokio::time::sleep;
@@ -147,7 +147,7 @@ impl IrIn {
         };
 
         let mut init = true;
-        ir.set_async_interrupt(Trigger::Both, move |level| {
+        ir.set_async_interrupt(Trigger::Both, move |_| {
             let now = Instant::now();
 
             if ir_pulse_sender

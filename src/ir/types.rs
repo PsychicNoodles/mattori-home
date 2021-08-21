@@ -1,10 +1,8 @@
-use crate::ir::input::IrPulseSequence;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
-use serde_derive::Deserialize;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Copy, PartialOrd, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
 pub struct IrPulse(pub u128);
 
 impl IrPulse {
@@ -25,7 +23,7 @@ impl AsPrimitive<f64> for IrPulse {
     }
 }
 
-#[derive(Debug, Clone, PartialOrd, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub struct IrSequence(pub Vec<IrPulse>);
 
 impl IrSequence {
@@ -40,6 +38,18 @@ impl AsRef<[IrPulse]> for IrSequence {
     }
 }
 
+pub trait IrFormat {
+    const WAIT_LENGTH: u128 = 10000;
+    const STD_CYCLE: u128;
+    fn in_bounds(pulse: IrPulse, cycles: u128) -> bool {
+        in_bounds(pulse, Self::STD_CYCLE * cycles)
+    }
+    fn verify_leader(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
+    fn verify_repeat(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
+    fn decode<T: AsRef<[IrPulse]>>(data: T) -> Result<IrPulseBytes, IrDecodeError>;
+    fn encode<T: AsRef<[u8]>>(bytes: T) -> Result<IrSequence, IrEncodeError>;
+}
+
 // target
 
 pub trait TemperatureCode {}
@@ -47,6 +57,7 @@ pub trait TemperatureCode {}
 pub trait ACMode {}
 
 pub trait IrTarget {
+    type Format: IrFormat;
     type Error: std::error::Error + Send + Sync;
     type Temperature: TemperatureCode;
     type Mode: ACMode;
@@ -70,8 +81,6 @@ fn in_bounds<L: AsPrimitive<f64>, T: AsPrimitive<f64>>(length: L, target: T) -> 
 pub enum IrDecodeError {
     #[error("Input is too short")]
     TooShort,
-    #[error("Input has even number of items")]
-    EvenInputs,
     #[error("Sequence ended with odd number of pulses")]
     OddEnd,
     #[error("Sequence was neither leader nor repeat")]
@@ -85,29 +94,14 @@ pub enum IrDecodeError {
 }
 
 #[derive(Error, Debug, Clone)]
-pub enum IrEncodeError {
-    #[error("A frame was empty")]
-    EmptyFrame,
-}
+pub enum IrEncodeError {}
 
-pub struct IrPulseBytes(pub Vec<Vec<u8>>);
+pub struct IrPulseBytes(pub Vec<u8>);
 
-impl AsRef<[Vec<u8>]> for IrPulseBytes {
-    fn as_ref(&self) -> &[Vec<u8>] {
+impl AsRef<[u8]> for IrPulseBytes {
+    fn as_ref(&self) -> &[u8] {
         &self.0
     }
-}
-
-pub trait IrFormat {
-    const WAIT_LENGTH: u128 = 10000;
-    const STD_CYCLE: u128;
-    fn in_bounds(pulse: IrPulse, cycles: u128) -> bool {
-        in_bounds(pulse, Self::STD_CYCLE * cycles)
-    }
-    fn verify_leader(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
-    fn verify_repeat(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
-    fn decode<T: AsRef<[IrPulse]>>(data: T) -> Result<IrPulseBytes, IrDecodeError>;
-    fn encode<T: AsRef<[Vec<u8>]>>(bytes: T) -> Result<IrSequence, IrEncodeError>;
 }
 
 pub trait IrSource {
@@ -116,20 +110,6 @@ pub trait IrSource {
 
 impl ToString for IrPulseBytes {
     fn to_string(&self) -> String {
-        self.0
-            .iter()
-            .enumerate()
-            .map(|(i, frame)| {
-                format!(
-                    "Frame #{} {}",
-                    i + 1,
-                    if frame.is_empty() {
-                        String::from("Repeat\n")
-                    } else {
-                        frame.iter().map(|b| format!("0x{:02X}", b)).join(", ")
-                    }
-                )
-            })
-            .join("\n")
+        self.0.iter().map(|b| format!("0x{:02X}", b)).join(", ")
     }
 }
