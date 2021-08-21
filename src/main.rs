@@ -4,9 +4,10 @@ extern crate log;
 #[macro_use]
 extern crate lazy_static;
 
+use crate::ir::format::Aeha;
 use crate::ir::output::IrOut;
 use crate::ir::sanyo::Sanyo;
-use crate::ir::types::{Aeha, IrFormat, IrSequence, IrTarget};
+use crate::ir::types::{IrFormat, IrSequence, IrTarget};
 use futures::{pin_mut, StreamExt};
 use ir::input::IrIn;
 use lcd::Lcd;
@@ -42,37 +43,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut ir = IrIn::start(IR_INPUT_PIN)?;
     let ir_stream = ir.pulse_stream();
     pin_mut!(ir_stream);
-    let pulse_seq = ir_stream.next().await.unwrap().unwrap().unwrap();
-    ir.stop().await?;
-    println!(
-        "pulse seq: {:?}",
-        pulse_seq.iter().map(|p| p.into_inner()).collect::<Vec<_>>()
-    );
-    println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
-    sleep(Duration::from_secs(3));
-    let out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
-    let vec = (*pulse_seq).clone();
-    out.send(IrSequence(vec))?;
-    sleep(Duration::from_secs(2));
-
-    // for i in 0.. {
-    //     match ir_stream.next().await {
-    //         Some(Ok(Some(sequence))) => {
-    //             println!("pulse seq: {:?}", sequence);
-    //             let mut f = File::create(format!("ir-input-{}", i))?;
-    //             let levels = sequence
-    //                 .iter()
-    //                 .map(|l| format!("{:?}", l))
-    //                 .collect::<Vec<_>>();
-    //             f.write(levels.join("\n").as_bytes());
-    //         }
-    //         _ => {
-    //             eprintln!("error reading pulse sequence!");
-    //             break;
-    //         }
-    //     }
-    // }
+    // let pulse_seq = ir_stream.next().await.unwrap().unwrap().unwrap();
     // ir.stop().await?;
+    // println!(
+    //     "pulse seq: {:?}",
+    //     pulse_seq.iter().map(|p| p.into_inner()).collect::<Vec<_>>()
+    // );
+    // println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
+    // sleep(Duration::from_secs(3));
+    // let out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
+    // let vec = (*pulse_seq).clone();
+    // out.send(IrSequence(vec))?;
+    // sleep(Duration::from_secs(2));
+
+    for i in 0.. {
+        match ir_stream.next().await {
+            Some(Ok(Some(sequence))) => {
+                println!("pulse seq: {:?}", sequence.0);
+
+                let mut f = File::create(format!("ir-input-{}", i))?;
+                let levels = Aeha::decode(&sequence.0)?
+                    .0
+                    .iter()
+                    .map(|l| format!("{:?}", l))
+                    .collect::<Vec<_>>();
+                f.write_all(levels.join("\n").as_bytes())?;
+            }
+            _ => {
+                eprintln!("error reading pulse sequence!");
+                break;
+            }
+        }
+    }
+    ir.stop().await?;
 
     // println!("starting 26 deg cool");
     // out.send_target(|t| {

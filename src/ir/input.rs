@@ -15,11 +15,11 @@ use tokio::{
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
-use crate::ir::types::IrPulse;
+use crate::ir::types::{IrPulse, IrSequence};
 
-pub type IrPulseSequence = Arc<Vec<IrPulse>>;
+pub type IrPulseSequence = Arc<IrSequence>;
 
-const WAIT_TIMEOUT: Duration = Duration::from_millis(100);
+const WAIT_TIMEOUT: Duration = Duration::from_millis(1000);
 const DEBOUNCE: Duration = Duration::from_micros(100);
 const MAX_PULSE: Duration = Duration::from_millis(10);
 
@@ -86,7 +86,8 @@ impl IrIn {
                                     }
                                     Ok(mut lock) => {
                                         trace!("finished sequence {:?}", sequence);
-                                        let finished_sequence = Arc::new(sequence.clone());
+                                        let finished_sequence =
+                                            Arc::new(IrSequence(sequence.clone()));
                                         lock.push(finished_sequence.clone());
                                         if let Err(e) =
                                             pulse_added_sender.send(Some(finished_sequence))

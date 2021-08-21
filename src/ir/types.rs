@@ -1,3 +1,4 @@
+use crate::ir::input::IrPulseSequence;
 use itertools::Itertools;
 use num_traits::AsPrimitive;
 use serde_derive::Deserialize;
@@ -33,6 +34,12 @@ impl IrSequence {
     }
 }
 
+impl AsRef<[IrPulse]> for IrSequence {
+    fn as_ref(&self) -> &[IrPulse] {
+        &self.0
+    }
+}
+
 // target
 
 pub trait TemperatureCode {}
@@ -60,7 +67,7 @@ fn in_bounds<L: AsPrimitive<f64>, T: AsPrimitive<f64>>(length: L, target: T) -> 
 }
 
 #[derive(Error, Debug, Clone)]
-pub enum IrFormatError {
+pub enum IrDecodeError {
     #[error("Input is too short")]
     TooShort,
     #[error("Input has even number of items")]
@@ -77,137 +84,30 @@ pub enum IrFormatError {
     UnexpectedEnd,
 }
 
-pub struct IrPulseBytes(Vec<Vec<u8>>);
+#[derive(Error, Debug, Clone)]
+pub enum IrEncodeError {
+    #[error("A frame was empty")]
+    EmptyFrame,
+}
+
+pub struct IrPulseBytes(pub Vec<Vec<u8>>);
+
+impl AsRef<[Vec<u8>]> for IrPulseBytes {
+    fn as_ref(&self) -> &[Vec<u8>] {
+        &self.0
+    }
+}
 
 pub trait IrFormat {
-    const WAIT_LENGTH: usize = 10000;
+    const WAIT_LENGTH: u128 = 10000;
+    const STD_CYCLE: u128;
+    fn in_bounds(pulse: IrPulse, cycles: u128) -> bool {
+        in_bounds(pulse, Self::STD_CYCLE * cycles)
+    }
     fn verify_leader(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
     fn verify_repeat(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
-    fn decode(data: &[IrPulse]) -> Result<IrPulseBytes, IrFormatError>;
-}
-
-pub struct Aeha {}
-
-impl Aeha {
-    const STD_CYCLE: usize = 425;
-}
-
-impl IrFormat for Aeha {
-    fn verify_leader(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool {
-        in_bounds(*first_pulse, Self::STD_CYCLE * 8)
-            && in_bounds(*second_pulse, Self::STD_CYCLE * 4)
-    }
-
-    fn verify_repeat(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool {
-        in_bounds(*first_pulse, Self::STD_CYCLE * 8)
-            && in_bounds(*second_pulse, Self::STD_CYCLE * 8)
-    }
-
-    fn decode(data: &[IrPulse]) -> Result<IrPulseBytes, IrFormatError> {
-        struct DecodeState {
-            frames: Vec<Vec<u8>>,
-            byte_list: Vec<u8>,
-            byte: u8,
-            bit_counter: usize,
-            end_of_frame: bool,
-        }
-        enum DecodeStep {
-            Error(IrFormatError),
-            Continue(DecodeState),
-            Finished(Vec<Vec<u8>>),
-        }
-
-        if data.len() < 10 {
-            return Err(IrFormatError::TooShort);
-        }
-        if data.len() % 2 == 0 {
-            return Err(IrFormatError::EvenInputs);
-        }
-
-        let res = data
-            .iter()
-            .chunks(2)
-            .into_iter()
-            .skip(1)
-            .map(|mut chunk| (chunk.next().unwrap(), chunk.next()))
-            .fold(
-                DecodeStep::Continue(DecodeState {
-                    frames: Vec::new(),
-                    byte_list: Vec::new(),
-                    byte: 0,
-                    bit_counter: 0,
-                    end_of_frame: false,
-                }),
-                |step, pulses| match step {
-                    e @ DecodeStep::Error(_) => e,
-                    f @ DecodeStep::Finished(_) => f,
-                    DecodeStep::Continue(mut state) => {
-                        if state.end_of_frame {
-                            match pulses {
-                                (p1, Some(p2)) => {
-                                    if Self::verify_leader(p1, p2) || Self::verify_repeat(p1, p2) {
-                                        DecodeStep::Continue(state)
-                                    } else {
-                                        DecodeStep::Error(IrFormatError::UnknownEnd)
-                                    }
-                                }
-                                _ => DecodeStep::Error(IrFormatError::OddEnd),
-                            }
-                        } else {
-                            match pulses {
-                                (p1, Some(p2)) => {
-                                    if in_bounds(*p1, Self::STD_CYCLE) {
-                                        // long gap after stop means next frame
-                                        if AsPrimitive::<usize>::as_(p2.0)
-                                            > <Self as IrFormat>::WAIT_LENGTH / 2
-                                        {
-                                            state.frames.push(state.byte_list);
-                                            state.byte_list = vec![];
-                                            state.byte = 0;
-                                            state.end_of_frame = true;
-                                            DecodeStep::Continue(state)
-                                        } else if in_bounds(*p2, Self::STD_CYCLE) {
-                                            state.bit_counter = (state.bit_counter + 1) % 8;
-                                            if state.bit_counter == 0 {
-                                                state.byte_list.push(state.byte);
-                                                state.byte = 0;
-                                            }
-                                            DecodeStep::Continue(state)
-                                        } else if in_bounds(*p2, Self::STD_CYCLE * 3) {
-                                            state.byte += (1 << state.bit_counter);
-                                            state.bit_counter = (state.bit_counter + 1) % 8;
-                                            if state.bit_counter == 0 {
-                                                state.byte_list.push(state.byte);
-                                                state.byte = 0;
-                                            }
-                                            DecodeStep::Continue(state)
-                                        } else {
-                                            DecodeStep::Error(IrFormatError::UnknownBit)
-                                        }
-                                    } else {
-                                        DecodeStep::Error(IrFormatError::UnknownBit)
-                                    }
-                                }
-                                (p1, None) => {
-                                    // stop length + bit counter = byte length
-                                    if in_bounds(*p1, Self::STD_CYCLE) && state.bit_counter == 0 {
-                                        state.frames.push(state.byte_list);
-                                        DecodeStep::Finished(state.frames)
-                                    } else {
-                                        DecodeStep::Error(IrFormatError::InvalidBits)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-            );
-        match res {
-            DecodeStep::Finished(r) => Ok(IrPulseBytes(r)),
-            DecodeStep::Error(e) => Err(e),
-            DecodeStep::Continue(_) => Err(IrFormatError::UnexpectedEnd),
-        }
-    }
+    fn decode<T: AsRef<[IrPulse]>>(data: T) -> Result<IrPulseBytes, IrDecodeError>;
+    fn encode<T: AsRef<[Vec<u8>]>>(bytes: T) -> Result<IrSequence, IrEncodeError>;
 }
 
 pub trait IrSource {
