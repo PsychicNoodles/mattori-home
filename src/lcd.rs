@@ -212,7 +212,7 @@ impl Lcd {
     }
 
     pub fn is_write_processing(&self) -> bool {
-        *self.processing_receiver.borrow() == true
+        *self.processing_receiver.borrow()
     }
 
     pub async fn wait_for_processing(&mut self) -> Result<()> {

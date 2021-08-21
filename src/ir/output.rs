@@ -1,16 +1,14 @@
 use std::sync::{mpsc, Arc, Mutex};
-use std::thread::sleep;
 use std::time::Duration;
 
 use color_eyre::eyre::WrapErr;
 use eyre::Result;
-use rppal::gpio::{Gpio, Level, PwmPulse, PwmStep};
+use rppal::gpio::{Gpio, PwmPulse, PwmStep};
 use tokio::sync::watch;
-use tokio::task::{spawn_blocking, JoinHandle};
+use tokio::task::spawn_blocking;
 
-use crate::ir::types::{IrPulse, IrSequence, IrTarget};
+use crate::ir::types::{IrSequence, IrTarget};
 use core::iter;
-use num_traits::PrimInt;
 
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
 

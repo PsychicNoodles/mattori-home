@@ -1,24 +1,21 @@
-use std::convert::TryFrom;
-use std::pin::Pin;
-use std::sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
 use async_stream::{stream, try_stream};
 use eyre::{eyre, Result, WrapErr};
 use futures::Stream;
 use rppal::gpio::{Gpio, InputPin, Level, Trigger};
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
-use tokio::sync::{broadcast, mpsc, Notify, OnceCell};
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::{mpsc, Notify};
 use tokio::time::sleep;
 use tokio::{
     pin,
     sync::watch,
-    task::{spawn, spawn_blocking, JoinHandle},
+    task::{spawn, JoinHandle},
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
 use crate::ir::types::IrPulse;
-use num_traits::PrimInt;
 
 pub type IrPulseSequence = Arc<Vec<IrPulse>>;
 
@@ -122,11 +119,10 @@ impl IrIn {
     }
 
     fn start_ir_interrupt_handler(
-        mut ir: &mut InputPin,
+        ir: &mut InputPin,
         ir_pulse_sender: UnboundedSender<IrInterruptMessage>,
     ) -> Result<JoinHandle<()>> {
         let mut last_inst = Instant::now();
-        let mut last_level = Level::Low;
         let timeout_reset_notify = Arc::new(Notify::new());
         let timeout_handle = {
             let timeout_sender = ir_pulse_sender.clone();
@@ -137,7 +133,7 @@ impl IrIn {
                 loop {
                     tokio::select! {
                         _ = sleep(WAIT_TIMEOUT) => {
-                            if let Err(_) = timeout_sender.send(IrInterruptMessage::Timeout) {
+                            if timeout_sender.send(IrInterruptMessage::Timeout).is_err() {
                                 info!("ir input timeout sender closed unexpectedly");
                             }
                         },
@@ -153,16 +149,17 @@ impl IrIn {
         ir.set_async_interrupt(Trigger::Both, move |level| {
             let now = Instant::now();
 
-            if let Err(_) =
-                ir_pulse_sender.send(IrInterruptMessage::Pulse(now.duration_since(last_inst)))
+            if ir_pulse_sender
+                .send(IrInterruptMessage::Pulse(now.duration_since(last_inst)))
+                .is_err()
             {
                 info!("ir input reader closed");
             }
 
             last_inst = now;
-            last_level = level;
             if init {
                 timeout_reset_notify.notify_one();
+                init = false;
             }
         })
         .wrap_err("Could not set up ir interrupt handler")?;

@@ -1,13 +1,5 @@
-use std::cmp::Ordering;
-use std::convert::TryFrom;
-use std::fmt::Formatter;
-use std::time::Duration;
-
 use itertools::Itertools;
-use num_traits::{AsPrimitive, PrimInt};
-use rppal::gpio::Level;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer};
+use num_traits::AsPrimitive;
 use serde_derive::Deserialize;
 use thiserror::Error;
 
@@ -91,7 +83,7 @@ pub trait IrFormat {
     const WAIT_LENGTH: usize = 10000;
     fn verify_leader(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
     fn verify_repeat(first_pulse: &IrPulse, second_pulse: &IrPulse) -> bool;
-    fn decode(data: &Vec<IrPulse>) -> Result<IrPulseBytes, IrFormatError>;
+    fn decode(data: &[IrPulse]) -> Result<IrPulseBytes, IrFormatError>;
 }
 
 pub struct Aeha {}
@@ -111,7 +103,7 @@ impl IrFormat for Aeha {
             && in_bounds(*second_pulse, Self::STD_CYCLE * 8)
     }
 
-    fn decode(data: &Vec<IrPulse>) -> Result<IrPulseBytes, IrFormatError> {
+    fn decode(data: &[IrPulse]) -> Result<IrPulseBytes, IrFormatError> {
         struct DecodeState {
             frames: Vec<Vec<u8>>,
             byte_list: Vec<u8>,
@@ -133,7 +125,7 @@ impl IrFormat for Aeha {
         }
 
         let res = data
-            .into_iter()
+            .iter()
             .chunks(2)
             .into_iter()
             .skip(1)
@@ -182,7 +174,7 @@ impl IrFormat for Aeha {
                                             }
                                             DecodeStep::Continue(state)
                                         } else if in_bounds(*p2, Self::STD_CYCLE * 3) {
-                                            state.byte = state.byte + (1 << state.bit_counter);
+                                            state.byte += (1 << state.bit_counter);
                                             state.bit_counter = (state.bit_counter + 1) % 8;
                                             if state.bit_counter == 0 {
                                                 state.byte_list.push(state.byte);

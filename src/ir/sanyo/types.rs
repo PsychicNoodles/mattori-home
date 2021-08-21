@@ -1,11 +1,8 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::time::Duration;
 
-use color_eyre::eyre::{eyre, Result, WrapErr};
 use serde_derive::Deserialize;
 use thiserror::Error;
-use toml::Value;
 
 use crate::ir::types::{ACMode, IrPulse, TemperatureCode};
 

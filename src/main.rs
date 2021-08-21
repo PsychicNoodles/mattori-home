@@ -5,7 +5,7 @@ extern crate log;
 extern crate lazy_static;
 
 use crate::ir::output::IrOut;
-use crate::ir::sanyo::sanyo::Sanyo;
+use crate::ir::sanyo::Sanyo;
 use crate::ir::types::{Aeha, IrFormat, IrSequence, IrTarget};
 use futures::{pin_mut, StreamExt};
 use ir::input::IrIn;
