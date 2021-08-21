@@ -23,6 +23,12 @@ impl AsPrimitive<f64> for IrPulse {
     }
 }
 
+impl AsPrimitive<usize> for IrPulse {
+    fn as_(self) -> usize {
+        self.0.as_()
+    }
+}
+
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub struct IrSequence(pub Vec<IrPulse>);
 

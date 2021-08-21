@@ -93,6 +93,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sleep(Duration::from_secs(3));
     println!("turning off");
     out.send_target(IrTarget::power_off)?;
+    sleep(Duration::from_secs(2));
+
+    out.stop()?;
 
     // let mut yellow_pin = Gpio::new()?.get(YELLOW_LED_PIN)?.into_output();
     // let mut green_pin = Gpio::new()?.get(GREEN_LED_PIN)?.into_output();

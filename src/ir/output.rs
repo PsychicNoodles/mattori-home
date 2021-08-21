@@ -67,14 +67,6 @@ impl<T: 'static + IrTarget> IrOut<T> {
                             ) {
                                 error!("Could not set up pwm for ir output: {:?}", e);
                             }
-                            // for pulse in seq.0 {
-                            //     match pulse.level.into_inner() {
-                            //         Level::Low => o.set_low(),
-                            //         Level::High => o.set_high(),
-                            //     };
-                            //     sleep(Duration::from_micros(pulse.duration));
-                            // }
-                            // o.set_low();
                         }
                     });
                 }

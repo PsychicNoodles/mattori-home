@@ -407,9 +407,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.99"
+version = "0.2.100"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7f823d141fe0a24df1e23b4af4e3c7ba9e5966ec514ea068c93024aa7deb765"
+checksum = "a1fa8cddc8fbbee11227ef194b5317ed014b8acbf15139bd716a18ad3fe99ec5"
 
 [[package]]
 name = "log"
@@ -574,7 +574,7 @@ checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 [[package]]
 name = "rppal"
 version = "0.12.0"
-source = "git+https://github.com/PsychicNoodles/rppal.git#fa5685a074dd23a930b90a9a7bbf72a60ad9b2db"
+source = "git+https://github.com/PsychicNoodles/rppal.git#61655470aa60f5c8812d6e540704472c4643fc87"
 dependencies = [
  "lazy_static",
  "libc",

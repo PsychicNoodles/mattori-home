@@ -70,7 +70,7 @@ impl IrFormat for Aeha {
                                 (p1, Some(p2)) => {
                                     if Self::in_bounds(*p1, 1) {
                                         // long gap after stop means next frame
-                                        if AsPrimitive::<usize>::as_(p2.0)
+                                        if AsPrimitive::<usize>::as_(*p2)
                                             > (<Self as IrFormat>::WAIT_LENGTH / 2) as usize
                                         {
                                             state.frames.append(&mut state.byte_list);
