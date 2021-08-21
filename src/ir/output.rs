@@ -95,6 +95,7 @@ impl<T: 'static + IrTarget> IrOut<T> {
     }
 
     pub fn send(&self, seq: IrSequence) -> Result<()> {
+        debug!("sending sequence: {:?}", seq);
         self.sequence_sender
             .send(seq)
             .wrap_err("Tried to send ir sequence to sender thread")
@@ -111,7 +112,6 @@ impl<T: 'static + IrTarget> IrOut<T> {
         mut action: F,
     ) -> Result<()> {
         let sequence = action(&mut self.target)?;
-        debug!("sending sequence: {:?}", sequence);
         self.send(sequence)
     }
 }

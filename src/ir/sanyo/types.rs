@@ -4,7 +4,7 @@ use cached::proc_macro::cached;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
-use crate::ir::types::{ACMode, IrPulse, TemperatureCode};
+use crate::ir::types::{ACMode, IrPulse, IrPulseBytes, TemperatureCode};
 use std::array::IntoIter;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq)]
@@ -253,19 +253,18 @@ pub fn sanyo_sequence(
     mode: SanyoMode,
     temperature: SanyoTemperatureCode,
     trigger: SanyoTrigger,
-) -> Vec<u8> {
+) -> IrPulseBytes {
     // todo determine how mode affects values
     let _ = match mode {
         SanyoMode::Cool => (),
     };
-    let temperature_ind = temperature.ind() * 2;
-    build_sequence(
+    IrPulseBytes(build_sequence(
         match trigger {
             SanyoTrigger::Down | SanyoTrigger::Up => 132,
             SanyoTrigger::Off => 133,
             SanyoTrigger::On => 134,
         },
-        24 + temperature_ind,
+        24 + (temperature.ind() * 2),
         match trigger {
             SanyoTrigger::Off => 3,
             SanyoTrigger::Down | SanyoTrigger::On | SanyoTrigger::Up => 35,
@@ -274,11 +273,65 @@ pub fn sanyo_sequence(
             SanyoTemperatureCode::T16
             | SanyoTemperatureCode::T17
             | SanyoTemperatureCode::T18
-            | SanyoTemperatureCode::T19 => 60 + temperature_ind,
+            | SanyoTemperatureCode::T19 => 60 + (temperature.ind() * 2),
             SanyoTemperatureCode::T28 | SanyoTemperatureCode::T29 | SanyoTemperatureCode::T30 => {
-                54 + temperature_ind
+                54 + ((temperature.ind() - 12) * 2)
             }
-            _ => 53 + temperature_ind,
+            _ => 53 + ((temperature.ind() - 4) * 2),
+        } + match trigger {
+            SanyoTrigger::Down | SanyoTrigger::Up => 1,
+            SanyoTrigger::Off => 0,
+            SanyoTrigger::On => 3,
         },
-    )
+    ))
+}
+
+mod test {
+    use super::*;
+    use crate::ir::format::Aeha;
+    use crate::ir::types::IrFormat;
+
+    #[test]
+    fn test_16_off() {
+        let bytes = sanyo_sequence(
+            SanyoMode::Cool,
+            SanyoTemperatureCode::T25,
+            SanyoTrigger::Off,
+        );
+        assert_eq!(
+            bytes.0.as_slice(),
+            &[64, 0, 20, 128, 67, 133, 42, 64, 3, 0, 104, 0, 0, 1, 0, 0, 63]
+        );
+    }
+
+    #[test]
+    fn test_16_on() {
+        let bytes = sanyo_sequence(SanyoMode::Cool, SanyoTemperatureCode::T25, SanyoTrigger::On);
+        assert_eq!(
+            bytes.0.as_slice(),
+            &[64, 0, 20, 128, 67, 134, 42, 64, 35, 0, 104, 0, 0, 1, 0, 0, 66]
+        );
+    }
+
+    #[test]
+    fn test_16_down() {
+        let bytes = sanyo_sequence(
+            SanyoMode::Cool,
+            SanyoTemperatureCode::T25,
+            SanyoTrigger::Down,
+        );
+        assert_eq!(
+            bytes.0.as_slice(),
+            &[64, 0, 20, 128, 67, 132, 42, 64, 35, 0, 104, 0, 0, 1, 0, 0, 64]
+        );
+    }
+
+    #[test]
+    fn test_16_up() {
+        let bytes = sanyo_sequence(SanyoMode::Cool, SanyoTemperatureCode::T25, SanyoTrigger::Up);
+        assert_eq!(
+            bytes.0.as_slice(),
+            &[64, 0, 20, 128, 67, 132, 42, 64, 35, 0, 104, 0, 0, 1, 0, 0, 64]
+        );
+    }
 }

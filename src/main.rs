@@ -48,13 +48,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ir.stop().await?;
     // println!(
     //     "pulse seq: {:?}",
-    //     pulse_seq.iter().map(|p| p.into_inner()).collect::<Vec<_>>()
+    //     pulse_seq
+    //         .0
+    //         .iter()
+    //         .map(|p| p.into_inner())
+    //         .collect::<Vec<_>>()
     // );
     // println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
     // sleep(Duration::from_secs(3));
     let mut out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
-    // let vec = (*pulse_seq).clone();
-    // out.send(IrSequence(vec))?;
+    // let seq = (*pulse_seq).clone();
+    // out.send(seq)?;
     // sleep(Duration::from_secs(2));
 
     // let name = if let Some(n) = std::env::args().nth(1) {
@@ -81,9 +85,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // }
     // ir.stop().await?;
 
-    println!("starting 26 deg cool");
+    println!("starting 25 deg cool");
     out.send_target(|t| {
-        t.temp_set(SanyoTemperatureCode::T26)?;
+        t.temp_set(SanyoTemperatureCode::T25)?;
         t.power_on()
     })?;
     sleep(Duration::from_secs(3));

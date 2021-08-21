@@ -96,6 +96,7 @@ pub enum IrDecodeError {
 #[derive(Error, Debug, Clone)]
 pub enum IrEncodeError {}
 
+#[derive(Clone, Debug)]
 pub struct IrPulseBytes(pub Vec<u8>);
 
 impl AsRef<[u8]> for IrPulseBytes {

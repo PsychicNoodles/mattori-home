@@ -124,35 +124,30 @@ impl IrFormat for Aeha {
         bytes
             .as_ref()
             .iter()
-            .fold(Ok((Vec::new(), true)), |res, byte| match res {
-                e @ Err(_) => e,
-                Ok((mut code, is_first)) => {
-                    if is_first {
-                        code.push(Self::WAIT_LENGTH);
-                    }
-
-                    // leader
-                    code.push(Self::STD_CYCLE * 8);
-                    code.push(Self::STD_CYCLE * 4);
-
-                    // data
-                    let mut bits = *byte;
-                    for _ in 0..8 {
-                        code.push(Self::STD_CYCLE);
-                        if (bits & 1) == 0 {
+            .fold(
+                Ok(vec![Self::STD_CYCLE * 8, Self::STD_CYCLE * 4]),
+                |res, byte| match res {
+                    e @ Err(_) => e,
+                    Ok(mut code) => {
+                        // data
+                        let mut bits = *byte;
+                        for _ in 0..8 {
                             code.push(Self::STD_CYCLE);
-                        } else {
-                            code.push(Self::STD_CYCLE * 3);
+                            if (bits & 1) == 0 {
+                                code.push(Self::STD_CYCLE);
+                            } else {
+                                code.push(Self::STD_CYCLE * 3);
+                            }
+                            bits >>= 1;
                         }
-                        bits >>= 1;
+
+                        Ok(code)
                     }
-
-                    // stop bit
-                    code.push(Self::STD_CYCLE);
-
-                    Ok((code, false))
-                }
+                },
+            )
+            .map(|mut code| {
+                code.push(Self::STD_CYCLE);
+                IrSequence(code.into_iter().map(IrPulse).collect())
             })
-            .map(|res| IrSequence(res.0.into_iter().map(IrPulse).collect()))
     }
 }
