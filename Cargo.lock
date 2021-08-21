@@ -463,7 +463,7 @@ checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 [[package]]
 name = "rppal"
 version = "0.12.0"
-source = "git+https://github.com/PsychicNoodles/rppal.git#01dcff84e83172262a0d08cadcb179fd7a918518"
+source = "git+https://github.com/PsychicNoodles/rppal.git#fa5685a074dd23a930b90a9a7bbf72a60ad9b2db"
 dependencies = [
  "lazy_static",
  "libc",
@@ -509,9 +509,9 @@ checksum = "c307a32c1c5c437f38c7fd45d753050587732ba8628319fbdf12a7e289ccc590"
 
 [[package]]
 name = "syn"
-version = "1.0.74"
+version = "1.0.75"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1873d832550d4588c3dbc20f01361ab00bfe741048f71e3fecf145a7cc18b29c"
+checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
 dependencies = [
  "proc-macro2",
  "quote",
