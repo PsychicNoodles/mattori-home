@@ -20,6 +20,7 @@ use std::ops::Deref;
 use std::thread::sleep;
 use std::time::Duration;
 
+mod atmosphere;
 mod ir;
 mod lcd;
 

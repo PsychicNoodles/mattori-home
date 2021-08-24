@@ -39,7 +39,7 @@ impl Lcd {
     pub fn new(slave_addr: u16) -> Result<Lcd> {
         let mut i2c = I2c::new().wrap_err("Could not initialize i2c")?;
         i2c.set_slave_address(slave_addr)
-            .wrap_err("Could not set slave address")?;
+            .wrap_err("Could not set lcd slave address")?;
         let (write_sender, write_receiver) = mpsc::channel();
         let (processing_sender, processing_receiver) = watch::channel(false);
         let write_handle = {
