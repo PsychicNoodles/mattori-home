@@ -1,18 +1,18 @@
-use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode, Reading, Register};
-use async_stream::try_stream;
-use color_eyre::eyre::{eyre, Result, WrapErr};
-use tokio::sync::{mpsc, watch};
-use tokio::time;
-use tokio::time::{Duration, Instant};
+use std::convert::TryInto;
+use std::sync::{mpsc, MutexGuard};
+use std::thread::sleep;
 
+use color_eyre::eyre::{eyre, Result, WrapErr};
 use futures::Stream;
 use num_traits::{clamp, Zero};
 use rppal::i2c::I2c;
-use std::convert::TryInto;
-use std::sync::MutexGuard;
-use std::thread::sleep;
+use std::time::{Duration, Instant};
+use tokio::sync::watch;
+use tokio::time;
 
-const READ_RATE: Duration = Duration::from_secs(1);
+use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode, Register};
+use crate::atmosphere::Reading;
+use tokio::task::spawn_blocking;
 
 #[derive(Clone, Debug)]
 pub(super) enum ReaderMessage {
@@ -130,66 +130,6 @@ impl AtmoI2c {
 
     pub(super) fn read_altitude(&self, pressure: f32) -> f32 {
         44330.0 * (1.0 - (pressure / self.sea_level_pressure).powf(0.1903))
-    }
-
-    pub(super) async fn stream(
-        &mut self,
-        mut message_receiver: mpsc::UnboundedReceiver<ReaderMessage>,
-    ) -> impl Stream<Item = Result<Reading>> + '_ {
-        try_stream! {
-            let mut features = EnabledFeatures::default();
-            let mut running = true;
-            let mut next_tick = Instant::now();
-            loop {
-                time::sleep_until(next_tick).await;
-                match message_receiver.recv().await {
-                    Some(ReaderMessage::Stop) => break,
-                    None => {
-                        info!("atmosphere stream message sender closed before stop signal");
-                        break;
-                    }
-                    Some(ReaderMessage::Pause) => running = false,
-                    Some(ReaderMessage::ChangeEnabled(new_features)) => features = new_features,
-                    Some(ReaderMessage::Start) => running = true,
-                }
-
-                let reading = if running && features.temperature_enabled() {
-                    let (temp_fine, temperature) = self
-                        .read_temperature()
-                        .wrap_err("Could not get temperature reading")?;
-
-                    let pressure = features
-                        .pressure_enabled()
-                        .then(|| {
-                            self.read_pressure(temp_fine)
-                                .wrap_err("Could not get pressure reading")
-                        })
-                        .transpose()?;
-
-                    let humidity = features
-                        .humidity_enabled()
-                        .then(|| {
-                            self.read_humidity(temp_fine)
-                                .wrap_err("Could not get humidity reading")
-                        })
-                        .transpose()?;
-
-                    let altitude = pressure
-                        .and_then(|p| features.altitude_enabled().then(|| self.read_altitude(p)));
-
-                    Reading {
-                        temperature: Some(temperature),
-                        pressure,
-                        humidity,
-                        altitude,
-                    }
-                } else {
-                    Reading::empty()
-                };
-
-                yield reading;
-            }
-        }
     }
 
     fn until_status_ok(&self) -> Result<()> {

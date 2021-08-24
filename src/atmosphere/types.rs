@@ -1,10 +1,11 @@
 use std::array::IntoIter;
 use std::sync::{Mutex, MutexGuard};
 
-use crate::atmosphere::calibration::Calibration;
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use rppal::i2c::I2c;
 use tokio::time::Duration;
+
+use crate::atmosphere::calibration::Calibration;
 
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
 pub(super) enum Mode {
@@ -107,24 +108,6 @@ impl EnabledFeatures {
 
     pub(super) fn altitude_enabled(&self) -> bool {
         self.altitude
-    }
-}
-
-pub(super) struct Reading {
-    pub(super) temperature: Option<f32>,
-    pub(super) pressure: Option<f32>,
-    pub(super) humidity: Option<f32>,
-    pub(super) altitude: Option<f32>,
-}
-
-impl Reading {
-    pub(super) fn empty() -> Reading {
-        Reading {
-            temperature: None,
-            pressure: None,
-            humidity: None,
-            altitude: None,
-        }
     }
 }
 
