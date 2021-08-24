@@ -1,9 +1,12 @@
-use crate::atmosphere::types::{AtmoI2c, Mode, Register};
-use color_eyre::eyre::{Result, WrapErr};
-use std::time::{Duration, Instant};
-use tokio::sync::watch;
+use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode, Reading, Register};
+use async_stream::try_stream;
+use color_eyre::eyre::{eyre, Result, WrapErr};
+use tokio::sync::{mpsc, watch};
 use tokio::time;
+use tokio::time::{Duration, Instant};
 
+use futures::Stream;
+use num_traits::{clamp, Zero};
 use rppal::i2c::I2c;
 use std::convert::TryInto;
 use std::sync::MutexGuard;
@@ -13,6 +16,9 @@ const READ_RATE: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
 pub(super) enum ReaderMessage {
+    Start,
+    Pause,
+    ChangeEnabled(EnabledFeatures),
     Stop,
 }
 
@@ -31,7 +37,7 @@ impl AtmoI2c {
     }
 
     // mutable borrow of self, so no need to maintain a mutex lock
-    pub(super) fn read_temperature(&mut self) -> Result<(usize, f32)> {
+    pub(super) fn read_temperature(&mut self) -> Result<(f32, f32)> {
         if self.mode != Mode::Normal {
             self.set_mode(Mode::Force)
                 .wrap_err("Could not set mode to force")?;
@@ -52,20 +58,138 @@ impl AtmoI2c {
         let var2 = raw_temp / 131072.0 - temp1 / 8192.0;
         let var3 = (var2 * var2) * temp3;
 
-        let temp_fine = (var1 + var3) as usize;
-        Ok((temp_fine, temp_fine as f32 / 5120.0))
+        let temp_fine = (var1 + var3).floor();
+        Ok((temp_fine, temp_fine / 5120.0))
     }
 
-    pub async fn tmp(&self, mut mode_receiver: watch::Receiver<ReaderMessage>) -> Result<()> {
-        let mut last_tick = Instant::now();
-        let mut next_tick = last_tick + READ_RATE;
-        // loop {
-        //     time::sleep_until(last_tick).await;
-        //     match mode_receiver.borrow_and_update().clone() {
-        //         ReaderMessage::Stop => return Ok(()),
-        //     }
-        // }
-        todo!()
+    pub(super) fn read_pressure(&self, temp_fine: f32) -> Result<f32> {
+        let adc = self
+            .read24(Register::PressureData)
+            .wrap_err("Could not read pressure data register")?
+            / 16.0;
+        let pressure = &self.calibration.pressure;
+        let (pres1, pres2, pres3, pres4, pres5, pres6, pres7, pres8, pres9) = (
+            pressure.a as f32,
+            pressure.b as f32,
+            pressure.c as f32,
+            pressure.d as f32,
+            pressure.e as f32,
+            pressure.f as f32,
+            pressure.g as f32,
+            pressure.h as f32,
+            pressure.i as f32,
+        );
+        let var1 = temp_fine / 2.0 - 64000.0;
+        let var2 = var1 * var1 * pres6 / 32768.0;
+        let var2 = var2 + var1 * pres5 * 2.0;
+        let var2 = var2 / 4.0 + pres4 * 65536.0;
+        let var3 = pres3 * var1 * var1 / 524288.0;
+        let var1 = (var3 + pres2 * var1) / 524288.0;
+        let var1 = (1.0 + var1 / 32768.0) * pres1;
+
+        if var1.is_zero() {
+            return Err(eyre!(
+                "Invalid result calculating pressure from calibration registers"
+            ));
+        }
+
+        let pressure = 1048576.0 - adc;
+        let pressure = ((pressure - var2 / 4096.0) * 6250.0) / var1;
+        let var1 = pres9 * pressure * pressure / 2147483648.0;
+        let var2 = pressure * pres8 / 32768.0;
+        let pressure = pressure + (var1 + var2 + pres7) / 16.0;
+
+        Ok(pressure / 100.0)
+    }
+
+    pub(super) fn read_humidity(&self, temp_fine: f32) -> Result<f32> {
+        let hum = self
+            .read_register(Register::HumidData, |buf| [buf[0], buf[1]])
+            .wrap_err("Could not read humidity data register")?;
+        let adc = ((hum[0] as i32) << 8 | hum[1] as i32) as f32;
+        let humidity = &self.calibration.humidity;
+        let (hum1, hum2, hum3, hum4, hum5, hum6) = (
+            humidity.a as f32,
+            humidity.b as f32,
+            humidity.c as f32,
+            humidity.d as f32,
+            humidity.e as f32,
+            humidity.f as f32,
+        );
+        let var1 = temp_fine - 76800.0;
+        let var2 = hum4 * 64.0 + (hum5 / 16384.0) * var1;
+        let var3 = adc - var2;
+        let var4 = hum2 / 65536.0;
+        let var5 = 1.0 + (hum3 / 67108864.0) * var1;
+        let var6 = 1.0 + (hum6 / 67108864.0) * var1 * var5;
+        let var6 = var3 * var4 * (var5 * var6);
+        let humidity = var6 * (1.0 - hum1 * var6 / 524288.0);
+
+        Ok(clamp(humidity, 0.0, 100.0))
+    }
+
+    pub(super) fn read_altitude(&self, pressure: f32) -> f32 {
+        44330.0 * (1.0 - (pressure / self.sea_level_pressure).powf(0.1903))
+    }
+
+    pub(super) async fn stream(
+        &mut self,
+        mut message_receiver: mpsc::UnboundedReceiver<ReaderMessage>,
+    ) -> impl Stream<Item = Result<Reading>> + '_ {
+        try_stream! {
+            let mut features = EnabledFeatures::default();
+            let mut running = true;
+            let mut next_tick = Instant::now();
+            loop {
+                time::sleep_until(next_tick).await;
+                match message_receiver.recv().await {
+                    Some(ReaderMessage::Stop) => break,
+                    None => {
+                        info!("atmosphere stream message sender closed before stop signal");
+                        break;
+                    }
+                    Some(ReaderMessage::Pause) => running = false,
+                    Some(ReaderMessage::ChangeEnabled(new_features)) => features = new_features,
+                    Some(ReaderMessage::Start) => running = true,
+                }
+
+                let reading = if running && features.temperature_enabled() {
+                    let (temp_fine, temperature) = self
+                        .read_temperature()
+                        .wrap_err("Could not get temperature reading")?;
+
+                    let pressure = features
+                        .pressure_enabled()
+                        .then(|| {
+                            self.read_pressure(temp_fine)
+                                .wrap_err("Could not get pressure reading")
+                        })
+                        .transpose()?;
+
+                    let humidity = features
+                        .humidity_enabled()
+                        .then(|| {
+                            self.read_humidity(temp_fine)
+                                .wrap_err("Could not get humidity reading")
+                        })
+                        .transpose()?;
+
+                    let altitude = pressure
+                        .and_then(|p| features.altitude_enabled().then(|| self.read_altitude(p)));
+
+                    Reading {
+                        temperature: Some(temperature),
+                        pressure,
+                        humidity,
+                        altitude,
+                    }
+                } else {
+                    Reading::empty()
+                };
+
+                yield reading;
+            }
+        }
     }
 
     fn until_status_ok(&self) -> Result<()> {

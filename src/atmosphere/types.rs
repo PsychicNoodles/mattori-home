@@ -35,6 +35,8 @@ pub(super) enum Register {
     DigH1,
     DigH2,
     TempData,
+    PressureData,
+    HumidData,
 }
 
 impl From<Register> for u8 {
@@ -50,6 +52,8 @@ impl From<Register> for u8 {
             Register::DigH1 => 0xa1,
             Register::DigH2 => 0xe1,
             Register::TempData => 0xfa,
+            Register::PressureData => 0xf7,
+            Register::HumidData => 0xfd,
         }
     }
 }
@@ -65,6 +69,61 @@ impl From<Overscan> for u8 {
         match o {
             Overscan::X1 => 0x01,
             Overscan::X16 => 0x05,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct EnabledFeatures {
+    pub(super) temperature: bool,
+    pub(super) pressure: bool,
+    pub(super) humidity: bool,
+    pub(super) altitude: bool,
+}
+
+impl Default for EnabledFeatures {
+    fn default() -> Self {
+        Self {
+            temperature: true,
+            pressure: true,
+            humidity: true,
+            altitude: true,
+        }
+    }
+}
+
+impl EnabledFeatures {
+    pub(super) fn temperature_enabled(&self) -> bool {
+        self.temperature || self.pressure_enabled() || self.humidity_enabled()
+    }
+
+    pub(super) fn pressure_enabled(&self) -> bool {
+        self.pressure || self.altitude_enabled()
+    }
+
+    pub(super) fn humidity_enabled(&self) -> bool {
+        self.humidity
+    }
+
+    pub(super) fn altitude_enabled(&self) -> bool {
+        self.altitude
+    }
+}
+
+pub(super) struct Reading {
+    pub(super) temperature: Option<f32>,
+    pub(super) pressure: Option<f32>,
+    pub(super) humidity: Option<f32>,
+    pub(super) altitude: Option<f32>,
+}
+
+impl Reading {
+    pub(super) fn empty() -> Reading {
+        Reading {
+            temperature: None,
+            pressure: None,
+            humidity: None,
+            altitude: None,
         }
     }
 }
