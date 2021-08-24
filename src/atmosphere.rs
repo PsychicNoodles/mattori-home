@@ -23,6 +23,7 @@ mod types;
 
 const READ_RATE: Duration = Duration::from_secs(1);
 
+#[derive(Clone, Debug)]
 pub struct Reading {
     pub temperature: Option<f32>,
     pub pressure: Option<f32>,
@@ -43,18 +44,18 @@ impl Reading {
 
 pub struct Atmosphere {
     reading_receiver: watch::Receiver<Result<Reading>>,
-    mode_sender: mpsc::Sender<ReaderMessage>,
+    message_sender: mpsc::Sender<ReaderMessage>,
 }
 
 impl Atmosphere {
     pub fn start(addr: u16) -> Result<Atmosphere> {
         let mut atmo_i2c = AtmoI2c::new(addr)?;
-        let (mode_sender, mode_receiver) = mpsc::channel();
-        let reading_receiver = Self::start_reading(atmo_i2c, mode_receiver);
+        let (message_sender, message_receiver) = mpsc::channel();
+        let reading_receiver = Self::start_reading(atmo_i2c, message_receiver);
 
         Ok(Atmosphere {
             reading_receiver,
-            mode_sender,
+            message_sender,
         })
     }
 
@@ -71,26 +72,45 @@ impl Atmosphere {
             loop {
                 let now = Instant::now();
                 if now < next_tick {
+                    trace!("sleeping {:?}", next_tick - now);
                     sleep(next_tick - now);
                 } else {
                     info!("next tick already surpassed, might need to increase read rate");
                 }
                 next_tick = next_tick + READ_RATE;
 
-                if reading_sender.receiver_count() == 0 {
+                if reading_sender.receiver_count() <= 1 {
                     debug!("skipping due to no reading receivers");
                     continue;
                 }
 
-                match message_receiver.recv() {
-                    Ok(ReaderMessage::Stop) => break,
-                    Err(_) => {
+                match message_receiver.try_recv() {
+                    Ok(ReaderMessage::Stop) => {
+                        info!("atmosphere thread received stop signal");
+                        break;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        // no new messages so skip
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => {
                         info!("atmosphere stream message sender closed before stop signal");
                         break;
                     }
-                    Ok(ReaderMessage::Pause) => running = false,
-                    Ok(ReaderMessage::ChangeEnabled(new_features)) => features = new_features,
-                    Ok(ReaderMessage::Start) => running = true,
+                    Ok(ReaderMessage::Pause) => {
+                        info!("atmosphere thread pausing");
+                        running = false
+                    }
+                    Ok(ReaderMessage::ChangeEnabled(new_features)) => {
+                        info!(
+                            "atmosphere thread switching to new enabled features: {:?}",
+                            new_features
+                        );
+                        features = new_features
+                    }
+                    Ok(ReaderMessage::Start) => {
+                        info!("atmosphere thread starting");
+                        running = true
+                    }
                 }
 
                 let reading = Self::perform_reading(&mut atmo_i2c, running, &features);
@@ -108,9 +128,11 @@ impl Atmosphere {
         features: &EnabledFeatures,
     ) -> Result<Reading> {
         Ok(if running && features.temperature_enabled() {
+            trace!("running && temperature enabled");
             let (temp_fine, temperature) = atmo_i2c
                 .read_temperature()
                 .wrap_err("Could not get temperature reading")?;
+            trace!("read temperature: {:?} {:?}", temp_fine, temperature);
 
             let pressure = features
                 .pressure_enabled()
@@ -120,6 +142,7 @@ impl Atmosphere {
                         .wrap_err("Could not get pressure reading")
                 })
                 .transpose()?;
+            trace!("read pressure: {:?}", pressure);
 
             let humidity = features
                 .humidity_enabled()
@@ -129,12 +152,14 @@ impl Atmosphere {
                         .wrap_err("Could not get humidity reading")
                 })
                 .transpose()?;
+            trace!("read humidity: {:?}", humidity);
 
             let altitude = pressure.and_then(|p| {
                 features
                     .altitude_enabled()
                     .then(|| atmo_i2c.read_altitude(p))
             });
+            trace!("read altitude: {:?}", altitude);
 
             Reading {
                 temperature: Some(temperature),
@@ -143,11 +168,30 @@ impl Atmosphere {
                 altitude,
             }
         } else {
+            trace!("skip reading");
             Reading::empty()
         })
     }
 
     pub fn subscribe(&self) -> watch::Receiver<Result<Reading>> {
         self.reading_receiver.clone()
+    }
+
+    pub fn pause(&self) -> Result<()> {
+        self.message_sender
+            .send(ReaderMessage::Pause)
+            .wrap_err("Could not send pause message to atmosphere reading thread")
+    }
+
+    pub fn restart(&self) -> Result<()> {
+        self.message_sender
+            .send(ReaderMessage::Start)
+            .wrap_err("Could not send (re)start message to atmosphere reading thread")
+    }
+
+    pub fn stop(&self) -> Result<()> {
+        self.message_sender
+            .send(ReaderMessage::Stop)
+            .wrap_err("Could not send stop message to atmosphere reading thread")
     }
 }

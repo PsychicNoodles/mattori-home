@@ -4,6 +4,7 @@ extern crate log;
 #[macro_use]
 extern crate lazy_static;
 
+use crate::atmosphere::Atmosphere;
 use crate::ir::format::Aeha;
 use crate::ir::output::IrOut;
 use crate::ir::sanyo::types::SanyoTemperatureCode;
@@ -19,6 +20,7 @@ use std::io::Write;
 use std::ops::Deref;
 use std::thread::sleep;
 use std::time::Duration;
+use tokio_stream::wrappers::WatchStream;
 
 mod atmosphere;
 mod ir;
@@ -31,6 +33,9 @@ const IR_INPUT_PIN: u8 = 4;
 const IR_OUTPUT_PIN: u8 = 13;
 
 const LCD_SLAVE_ADDR: u16 = 0x3e;
+
+const ATMOSPHERE_ADDR: u16 = 0x76;
+const ATMOSPHERE_ADDR2: u16 = 0x77;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // );
     // println!("{}", Aeha::decode(pulse_seq.deref())?.to_string());
     // sleep(Duration::from_secs(3));
-    let mut out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
+    // let mut out = IrOut::start(IR_OUTPUT_PIN, Sanyo::default())?;
     // let seq = (*pulse_seq).clone();
     // out.send(seq)?;
     // sleep(Duration::from_secs(2));
@@ -86,20 +91,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // }
     // ir.stop().await?;
 
-    println!("starting 25 deg cool");
-    out.send_target(|t| {
-        t.temp_set(SanyoTemperatureCode::T25)?;
-        t.power_on()
-    })?;
-    sleep(Duration::from_secs(3));
-    println!("turning off");
-    out.send_target(IrTarget::power_off)?;
-    sleep(Duration::from_secs(2));
-
-    out.stop()?;
+    // println!("starting 25 deg cool");
+    // out.send_target(|t| {
+    //     t.temp_set(SanyoTemperatureCode::T25)?;
+    //     t.power_on()
+    // })?;
+    // sleep(Duration::from_secs(3));
+    // println!("turning off");
+    // out.send_target(IrTarget::power_off)?;
+    // sleep(Duration::from_secs(2));
+    //
+    // out.stop()?;
 
     // let mut yellow_pin = Gpio::new()?.get(YELLOW_LED_PIN)?.into_output();
     // let mut green_pin = Gpio::new()?.get(GREEN_LED_PIN)?.into_output();
+
+    let atmosphere = Atmosphere::start(ATMOSPHERE_ADDR)?;
+    let mut atmo_reader = atmosphere.subscribe();
+
+    for _ in 0..5 {
+        atmo_reader.changed().await?;
+        let reading = atmo_reader.borrow();
+        println!("reading: {:?}", reading);
+    }
+    atmosphere.stop()?;
 
     Ok(())
 }
