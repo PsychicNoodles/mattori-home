@@ -17,6 +17,8 @@ use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 
 use crate::ir::types::{IrPulse, IrSequence};
 
+const IR_INPUT_PIN: u8 = 4;
+
 pub type IrPulseSequence = Arc<IrSequence>;
 
 const WAIT_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -117,6 +119,10 @@ impl IrIn {
             pulses,
             pulse_added_receiver,
         })
+    }
+
+    pub fn default_pin() -> Result<Self> {
+        Self::start(IR_INPUT_PIN)
     }
 
     fn start_ir_interrupt_handler(

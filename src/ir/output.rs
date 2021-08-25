@@ -10,6 +10,8 @@ use tokio::task::spawn_blocking;
 use crate::ir::types::{IrSequence, IrTarget};
 use core::iter;
 
+const IR_OUTPUT_PIN: u8 = 13;
+
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
 
 pub struct IrOut<T: 'static + IrTarget> {
@@ -84,6 +86,10 @@ impl<T: 'static + IrTarget> IrOut<T> {
             sequence_sender,
             send_stop_sender,
         })
+    }
+
+    pub fn default_pin(target: T) -> Result<Self> {
+        Self::start(IR_OUTPUT_PIN, target)
     }
 
     pub fn send(&self, seq: IrSequence) -> Result<()> {

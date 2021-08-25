@@ -21,6 +21,8 @@ mod calibration;
 mod commands;
 mod types;
 
+const ATMOSPHERE_ADDR: u16 = 0x76;
+
 const READ_RATE: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug)]
@@ -57,6 +59,10 @@ impl Atmosphere {
             reading_receiver,
             message_sender,
         })
+    }
+
+    pub fn default_addr() -> Result<Self> {
+        Self::start(ATMOSPHERE_ADDR)
     }
 
     fn start_reading(

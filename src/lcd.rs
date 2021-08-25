@@ -7,6 +7,8 @@ use tokio::{
     task::{spawn_blocking, JoinHandle},
 };
 
+const LCD_SLAVE_ADDR: u16 = 0x3e;
+
 #[derive(Debug, Clone)]
 enum LcdMessage {
     Char(u8),
@@ -125,6 +127,10 @@ impl Lcd {
         };
         lcd.init()?;
         Ok(lcd)
+    }
+
+    pub fn default_addr() -> Result<Self> {
+        Self::new(LCD_SLAVE_ADDR)
     }
 
     pub fn init(&mut self) -> Result<()> {
