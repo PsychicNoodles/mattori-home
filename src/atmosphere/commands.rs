@@ -1,18 +1,18 @@
-use std::convert::TryInto;
-use std::sync::{mpsc, MutexGuard};
+
+
 use std::thread::sleep;
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
-use futures::Stream;
+
 use num_traits::{clamp, Zero};
-use rppal::i2c::I2c;
-use std::time::{Duration, Instant};
-use tokio::sync::watch;
-use tokio::time;
+
+use std::time::{Duration};
+
+
 
 use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode, Register};
-use crate::atmosphere::Reading;
-use tokio::task::spawn_blocking;
+
+
 
 #[derive(Clone, Debug)]
 pub(super) enum ReaderMessage {

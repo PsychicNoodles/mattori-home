@@ -1,18 +1,11 @@
-use std::array::IntoIter;
-use std::ops::Deref;
-use std::pin::Pin;
-
-use async_stream::stream;
-use color_eyre::eyre::{eyre, WrapErr};
+use color_eyre::eyre::WrapErr;
 use eyre::Result;
-use futures::{pin_mut, stream::Peekable, FutureExt, Stream, StreamExt};
-use rppal::i2c::I2c;
+
 use tokio::sync::watch;
-use tokio::time::{self, Duration, Instant, Interval, MissedTickBehavior};
-use tokio_stream::wrappers::IntervalStream;
+use tokio::time::{Duration, Instant};
 
 use crate::atmosphere::commands::ReaderMessage;
-use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode};
+use crate::atmosphere::types::{AtmoI2c, EnabledFeatures};
 use std::sync::mpsc;
 use std::thread::sleep;
 use tokio::task::spawn_blocking;
@@ -51,7 +44,7 @@ pub struct Atmosphere {
 
 impl Atmosphere {
     pub fn start(addr: u16) -> Result<Atmosphere> {
-        let mut atmo_i2c = AtmoI2c::new(addr)?;
+        let atmo_i2c = AtmoI2c::new(addr)?;
         let (message_sender, message_receiver) = mpsc::channel();
         let reading_receiver = Self::start_reading(atmo_i2c, message_receiver);
 
@@ -67,7 +60,7 @@ impl Atmosphere {
 
     fn start_reading(
         mut atmo_i2c: AtmoI2c,
-        mut message_receiver: mpsc::Receiver<ReaderMessage>,
+        message_receiver: mpsc::Receiver<ReaderMessage>,
     ) -> watch::Receiver<Result<Reading>> {
         let (reading_sender, reading_receiver) = watch::channel(Ok(Reading::empty()));
 
@@ -83,7 +76,7 @@ impl Atmosphere {
                 } else {
                     info!("next tick already surpassed, might need to increase read rate");
                 }
-                next_tick = next_tick + READ_RATE;
+                next_tick += READ_RATE;
 
                 if reading_sender.receiver_count() <= 1 {
                     debug!("skipping due to no reading receivers");
@@ -121,7 +114,9 @@ impl Atmosphere {
 
                 let reading = Self::perform_reading(&mut atmo_i2c, running, &features);
 
-                reading_sender.send(reading);
+                if let Err(_) = reading_sender.send(reading) {
+                    info!("sent to no reading receivers");
+                }
             }
         });
 

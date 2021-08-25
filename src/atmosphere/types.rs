@@ -3,7 +3,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use rppal::i2c::I2c;
-use tokio::time::Duration;
+
 
 use crate::atmosphere::calibration::Calibration;
 
@@ -220,7 +220,7 @@ impl AtmoI2c {
                 )
             })
     }
-    pub(super) fn write_register(&self, register: Register, mut buf: [u8; 32]) -> Result<()> {
+    pub(super) fn write_register(&self, register: Register, buf: [u8; 32]) -> Result<()> {
         Self::write_register_to(&self.lock_i2c()?, register, buf)
     }
 

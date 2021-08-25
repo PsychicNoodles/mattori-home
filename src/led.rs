@@ -1,7 +1,7 @@
 use color_eyre::eyre::WrapErr;
 use color_eyre::Result;
 use rppal::gpio::{Gpio, OutputPin};
-use std::convert::TryFrom;
+
 use std::str::FromStr;
 use thiserror::Error;
 

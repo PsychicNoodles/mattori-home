@@ -99,8 +99,8 @@ impl AtmoI2c {
                 let humidity_data = &buf[..humidity_bytes]
                     .try_into()
                     .wrap_err("Calculated humidity data width mismatch")?;
-                Ok(PackedHumidity::unpack(&humidity_data)
-                    .wrap_err("Humidity data was of an invalid format")?)
+                PackedHumidity::unpack(humidity_data)
+                    .wrap_err("Humidity data was of an invalid format")
             })
             .wrap_err("Could not read humidity register")?
             .wrap_err("Could not unpack humidity data")?;
