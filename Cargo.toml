@@ -1,2 +1,5 @@
 [workspace]
-members = ["mattori-home-peripherals", "mattori-home-cli"]
+members = ["mattori-home-peripherals", "mattori-home-cli", "mattori-home-ui"]
+
+[profile.release]
+opt-level = 2
