@@ -11,12 +11,13 @@ use crate::ir::types::{IrFormat, IrPulse, IrSequence, IrTarget};
 use crate::lcd::Lcd;
 use crate::led::{Led, Leds};
 use color_eyre::eyre::WrapErr;
-use futures::{pin_mut, StreamExt};
 use ir::input::IrIn;
 use std::num::ParseIntError;
 use std::thread::sleep;
 use std::time::Duration;
 use structopt::StructOpt;
+use tokio::pin;
+use tokio_stream::StreamExt;
 
 mod atmosphere;
 mod ir;
@@ -80,6 +81,7 @@ enum Opt {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pretty_env_logger::init();
+    color_eyre::install()?;
 
     let opts = Opt::from_args();
 
@@ -88,7 +90,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             IrOpt::Receive { resend } => {
                 let mut ir_in = IrIn::default_pin()?;
                 let ir_stream = ir_in.pulse_stream();
-                pin_mut!(ir_stream);
+                pin!(ir_stream);
                 let pulse_seq = ir_stream.next().await.unwrap().unwrap().unwrap();
                 ir_in.stop().await?;
                 println!(

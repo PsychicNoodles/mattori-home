@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 
 use async_stream::{stream, try_stream};
 use eyre::{eyre, Result, WrapErr};
-use futures::Stream;
 use rppal::gpio::{Gpio, InputPin, Trigger};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, Notify};
@@ -13,7 +12,7 @@ use tokio::{
     sync::watch,
     task::{spawn, JoinHandle},
 };
-use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
+use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 
 use crate::ir::types::{IrPulse, IrSequence};
 
