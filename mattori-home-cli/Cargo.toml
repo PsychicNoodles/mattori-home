@@ -14,3 +14,8 @@ pretty_env_logger = "0.4"
 log = "0.4"
 eyre = "0.6"
 color-eyre = "0.5"
+tonic = "0.5"
+prost = "0.8"
+
+[build-dependencies]
+tonic-build = "0.5"
