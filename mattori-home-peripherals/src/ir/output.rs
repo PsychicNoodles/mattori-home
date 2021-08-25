@@ -1,18 +1,31 @@
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
-use color_eyre::eyre::WrapErr;
-use eyre::Result;
 use rppal::gpio::{Gpio, PwmPulse, PwmStep};
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
+use thiserror::Error;
 
 use crate::ir::types::{IrSequence, IrTarget};
 use core::iter;
+use crate::I2cError;
+use std::fmt::Debug;
 
 const IR_OUTPUT_PIN: u8 = 13;
 
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
+
+#[derive(Error, Debug)]
+pub enum IrOutError<E: IrTarget + Debug> {
+    #[error(transparent)]
+    I2cError(#[from] I2cError),
+    #[error(transparent)]
+    IrTarget(E::Error),
+    #[error("Could not send message to ir thread")]
+    Send
+}
+
+pub type Result<T, E> = std::result::Result<T, IrOutError<E>>;
 
 pub struct IrOut<T: 'static + IrTarget> {
     target: T,
@@ -20,13 +33,13 @@ pub struct IrOut<T: 'static + IrTarget> {
     send_stop_sender: watch::Sender<bool>,
 }
 
-impl<T: 'static + IrTarget> IrOut<T> {
-    pub fn start(pin: u8, target: T) -> Result<IrOut<T>> {
+impl<T: 'static + IrTarget + Debug> IrOut<T> {
+    pub fn start(pin: u8, target: T) -> Result<IrOut<T>, T> {
         let out = Arc::new(Mutex::new(
             Gpio::new()
-                .wrap_err("Could not initialize gpio")?
+                .map_err(|_| I2cError::Initialization)?
                 .get(pin)
-                .wrap_err_with(|| format!("Could not get gpio pin {}", pin))?
+                .map_err(|_| I2cError::Pin(pin))?
                 .into_output(),
         ));
         let (send_stop_sender, send_stop_receiver) = watch::channel(false);
@@ -88,27 +101,27 @@ impl<T: 'static + IrTarget> IrOut<T> {
         })
     }
 
-    pub fn default_pin(target: T) -> Result<Self> {
+    pub fn default_pin(target: T) -> Result<Self, T> {
         Self::start(IR_OUTPUT_PIN, target)
     }
 
-    pub fn send(&self, seq: IrSequence) -> Result<()> {
+    pub fn send(&self, seq: IrSequence) -> Result<(), T> {
         debug!("sending sequence: {:?}", seq);
         self.sequence_sender
             .send(seq)
-            .wrap_err("Tried to send ir sequence to sender thread")
+            .map_err(|_| IrOutError::Send)
     }
 
-    pub fn stop(&mut self) -> Result<()> {
+    pub fn stop(&mut self) -> Result<(), T> {
         self.send_stop_sender
             .send(true)
-            .wrap_err("Could not send stop to ir sequence sender")
+            .map_err(|_| IrOutError::Send)
     }
 
-    pub fn send_target<F: FnMut(&mut T) -> Result<IrSequence, T::Error>>(
+    pub fn send_target<F: FnMut(&mut T) -> Result<IrSequence, T>>(
         &mut self,
         mut action: F,
-    ) -> Result<()> {
+    ) -> Result<(), T> {
         let sequence = action(&mut self.target)?;
         self.send(sequence)
     }

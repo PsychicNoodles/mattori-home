@@ -1,11 +1,12 @@
 use std::{array, sync::mpsc, thread::sleep, time::Duration};
 
-use eyre::{Result, WrapErr};
+use thiserror::Error;
 use rppal::i2c::I2c;
 use tokio::{
     sync::watch,
     task::{spawn_blocking, JoinHandle},
 };
+use crate::I2cError;
 
 const LCD_SLAVE_ADDR: u16 = 0x3e;
 
@@ -16,6 +17,20 @@ enum LcdMessage {
     Wait(Duration),
     Stop,
 }
+
+#[derive(Error, Debug)]
+pub enum LcdError {
+    #[error(transparent)]
+    I2cError(#[from] I2cError),
+    #[error("Could not send message to lcd thread")]
+    Send,
+    #[error("Could not wait for lcd thread to stop")]
+    ThreadWait,
+    #[error("Could not wait for processing notification")]
+    ProcessingWait,
+}
+
+pub type Result<T> = std::result::Result<T, LcdError>;
 
 pub struct Lcd {
     col: u8,
@@ -39,9 +54,9 @@ impl Lcd {
     ];
 
     pub fn new(slave_addr: u16) -> Result<Lcd> {
-        let mut i2c = I2c::new().wrap_err("Could not initialize i2c")?;
+        let mut i2c = I2c::new().map_err(|_| I2cError::Initialization)?;
         i2c.set_slave_address(slave_addr)
-            .wrap_err("Could not set lcd slave address")?;
+            .map_err(|_| I2cError::SlaveAddr(slave_addr))?;
         let (write_sender, write_receiver) = mpsc::channel();
         let (processing_sender, processing_receiver) = watch::channel(false);
         let write_handle = {
@@ -58,9 +73,8 @@ impl Lcd {
                             // notify if no message in queue
                             if let Err(e) = processing_sender
                                 .send(false)
-                                .wrap_err("Tried setting processing status to false")
                             {
-                                error!("error in lcd messaging thread: {}", e);
+                                error!("error in lcd messaging thread while trying to set processing status to false: {}", e);
                                 break;
                             }
                             match e {
@@ -80,29 +94,21 @@ impl Lcd {
                     };
                     if let Err(e) = processing_sender
                         .send(true)
-                        .wrap_err("Tried setting processing status to false")
                     {
-                        error!("error in lcd messaging thread: {}", e);
+                        error!("error in lcd messaging thread while trying to set processing status to false: {}", e);
                         break;
                     }
                     match next_msg {
                         LcdMessage::Char(c) => {
                             trace!("writing char {} to lcd", c);
                             i2c.write(&[0x40, c])
-                                .wrap_err_with(|| {
-                                    format!("Tried writing character \"{}\" to lcd", c)
-                                })
+                                .map_err(|_| LcdError::Send)
                                 .unwrap();
                         }
                         LcdMessage::Cmd(ctrl, data) => {
                             trace!("writing cmd {} with data {} to lcd", ctrl, data);
                             i2c.write(&[ctrl, data])
-                                .wrap_err_with(|| {
-                                    format!(
-                                        "Tried writing command \"{}\" with data \"{}\" to lcd",
-                                        ctrl, data
-                                    )
-                                })
+                                .map_err(|_| LcdError::Send)
                                 .unwrap();
                         }
                         LcdMessage::Wait(duration) => {
@@ -137,7 +143,7 @@ impl Lcd {
         trace!("initializing lcd");
         array::IntoIter::new(Lcd::INIT_SEQ)
             .try_for_each(|msg| self.write_sender.send(msg))
-            .wrap_err("Tried initializing lcd display")?;
+            .map_err(|_| LcdError::Send)?;
         Ok(())
     }
 
@@ -145,10 +151,10 @@ impl Lcd {
         trace!("clearing lcd");
         self.write_sender
             .send(LcdMessage::Cmd(0, 0x01))
-            .wrap_err("Tried clearing lcd display")?;
+            .map_err(|_| LcdError::Send)?;
         self.write_sender
             .send(LcdMessage::Wait(Duration::from_millis(2)))
-            .wrap_err("Tried clearing lcd display")?;
+            .map_err(|_| LcdError::Send)?;
         Ok(())
     }
 
@@ -158,10 +164,10 @@ impl Lcd {
         self.row = 1;
         self.write_sender
             .send(LcdMessage::Cmd(0, 0x2))
-            .wrap_err("Tried to reset position to head of first line of lcd")?;
+            .map_err(|_| LcdError::Send)?;
         self.write_sender
             .send(LcdMessage::Wait(Duration::from_millis(2)))
-            .wrap_err("Tried to reset position to head of first line of lcd")?;
+            .map_err(|_| LcdError::Send)?;
         Ok(())
     }
 
@@ -171,10 +177,10 @@ impl Lcd {
         self.row = 2;
         self.write_sender
             .send(LcdMessage::Cmd(0, 0xc0))
-            .wrap_err("Tried to reset position to head of second line of lcd")?;
+            .map_err(|_| LcdError::Send)?;
         self.write_sender
             .send(LcdMessage::Wait(Duration::from_millis(2)))
-            .wrap_err("Tried to reset position to head of second line of lcd")?;
+            .map_err(|_| LcdError::Send)?;
         Ok(())
     }
 
@@ -192,14 +198,10 @@ impl Lcd {
         }
         self.write_sender
             .send(LcdMessage::Char(char))
-            .wrap_err_with(|| {
-                format!("Tried sending character \"{}\" to lcd message thread", char)
-            })?;
+            .map_err(|_| LcdError::Send)?;
         self.write_sender
             .send(LcdMessage::Wait(Duration::from_micros(50)))
-            .wrap_err_with(|| {
-                format!("Tried sending character \"{}\" to lcd message thread", char)
-            })?;
+            .map_err(|_| LcdError::Send)?;
         Ok(())
     }
 
@@ -212,8 +214,8 @@ impl Lcd {
         self.clear()?;
         self.write_sender
             .send(LcdMessage::Stop)
-            .wrap_err("Tried sending stop to lcd message thread")?;
-        (&mut self.write_handle).await?;
+            .map_err(|_| LcdError::Send)?;
+        (&mut self.write_handle).await.map_err(|_| LcdError::ThreadWait)?;
         Ok(())
     }
 
@@ -223,7 +225,7 @@ impl Lcd {
 
     pub async fn wait_for_processing(&mut self) -> Result<()> {
         if self.is_write_processing() {
-            self.processing_receiver.changed().await?;
+            self.processing_receiver.changed().await.map_err(|_| LcdError::ProcessingWait)?;
         }
         Ok(())
     }

@@ -1,0 +1,39 @@
+syntax = "proto3";
+package mattori_home;
+
+service Home {
+  rpc ReadAtmosphere(stream AtmosphereFeatures) returns (stream AtmosphereReading);
+  rpc GetAcStatus(AcStatusParam) returns (AcStatus);
+  rpc SetAcStatus(AcStatus) returns (AcStatus);
+}
+
+message AtmosphereFeatures {
+  bool temperature = 1;
+  bool pressure = 2;
+  bool humidity = 3;
+  bool altitude = 4;
+}
+
+message AtmosphereReading {
+  float temperature = 1;
+  float pressure = 2;
+  float humidity = 3;
+  float altitude = 4;
+}
+
+message AcStatusParam {
+
+}
+
+message AcStatus {
+  enum Mode {
+    AUTO = 0;
+    WARM = 1;
+    DRY = 2;
+    COOL = 3;
+    FAN = 4;
+  }
+  bool powered = 1;
+  Mode mode = 2;
+  uint32 temperature = 3;
+}

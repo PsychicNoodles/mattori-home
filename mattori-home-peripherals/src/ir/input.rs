@@ -2,7 +2,6 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::{Duration, Instant};
 
 use async_stream::{stream, try_stream};
-use eyre::{eyre, Result, WrapErr};
 use rppal::gpio::{Gpio, InputPin, Trigger};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, Notify};
@@ -13,8 +12,10 @@ use tokio::{
     task::{spawn, JoinHandle},
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
+use thiserror::Error;
 
 use crate::ir::types::{IrPulse, IrSequence};
+use crate::I2cError;
 
 const IR_INPUT_PIN: u8 = 4;
 
@@ -37,12 +38,30 @@ enum IrInterruptMessage {
     Timeout,
 }
 
+#[derive(Error, Debug)]
+pub enum IrInError {
+    #[error(transparent)]
+    I2cError(#[from] I2cError),
+    #[error("Could not acquire lock for pulses")]
+    PulsesLock,
+    #[error("Could not send stop to ir reader")]
+    Send,
+    #[error("Could not wait for ir reader thread to stop")]
+    ThreadWait,
+    #[error("Could not get next pulse")]
+    PulseReceive,
+    #[error("Could not set up ir interrupt handler")]
+    IrInterrupt(#[from] rppal::gpio::Error)
+}
+
+pub type Result<T> = std::result::Result<T, IrInError>;
+
 impl IrIn {
     pub fn start(pin: u8) -> Result<IrIn> {
         let mut ir = Gpio::new()
-            .wrap_err("Could not initialize gpio")?
+            .map_err(|_| I2cError::Initialization)?
             .get(pin)
-            .wrap_err_with(|| format!("Could not get gpio pin {}", pin))?
+            .map_err(|_| I2cError::Pin(pin))?
             .into_input();
         let (read_stop_sender, read_stop_receiver) = watch::channel(false);
         let pulses = Arc::new(RwLock::new(Vec::new()));
@@ -168,7 +187,7 @@ impl IrIn {
                 init = false;
             }
         })
-        .wrap_err("Could not set up ir interrupt handler")?;
+        .map_err(IrInError::IrInterrupt)?;
         Ok(timeout_handle)
     }
 
@@ -230,29 +249,29 @@ impl IrIn {
     pub async fn stop(&mut self) -> Result<()> {
         self.read_stop_sender
             .send(true)
-            .wrap_err("Could not send stop to ir reader")?;
+            .map_err(|_| IrInError::Send)?;
         (&mut self.read_handle)
             .await
-            .wrap_err("Could not wait for read thread to stop")
+            .map_err(|_| IrInError::ThreadWait)
     }
 
     pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<IrPulseSequence>>> {
         self.pulses
             .read()
-            .map_err(|_| eyre!("Tried to acquire read lock to pulses vector"))
+            .map_err(|_| IrInError::PulsesLock)
     }
 
     pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<IrPulseSequence>>> {
         self.pulses
             .write()
-            .map_err(|_| eyre!("Tried to acquire write lock to pulses vector"))
+            .map_err(|_| IrInError::PulsesLock)
     }
 
     pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<IrPulseSequence>>> {
         let mut receiver = self.pulse_added_receiver.clone();
         try_stream! {
             loop {
-                receiver.changed().await.wrap_err("Tried getting next pulse sequence")?;
+                receiver.changed().await.map_err(|_| IrInError::PulseReceive)?;
                 yield receiver.borrow().clone();
             }
         }

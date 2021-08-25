@@ -1,14 +1,11 @@
-use color_eyre::eyre::WrapErr;
-use eyre::Result;
-
 use tokio::sync::watch;
 use tokio::time::{Duration, Instant};
 
-use crate::atmosphere::commands::ReaderMessage;
-use crate::atmosphere::types::{AtmoI2c, EnabledFeatures};
+use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, AtmoI2cError};
 use std::sync::mpsc;
 use std::thread::sleep;
 use tokio::task::spawn_blocking;
+use thiserror::Error;
 
 mod calibration;
 mod commands;
@@ -36,6 +33,26 @@ impl Reading {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum ReaderMessage {
+    Start,
+    Pause,
+    ChangeEnabled(EnabledFeatures),
+    Recalibrate,
+    ChangeSeaLevelPressure(f32),
+    Stop,
+}
+
+#[derive(Error, Debug)]
+pub enum AtmosphereError {
+    #[error(transparent)]
+    Internal(#[from] AtmoI2cError),
+    #[error("Could not communicate with i2c thread")]
+    Send
+}
+
+pub type Result<T> = std::result::Result<T, AtmosphereError>;
 
 pub struct Atmosphere {
     reading_receiver: watch::Receiver<Result<Reading>>,
@@ -110,6 +127,18 @@ impl Atmosphere {
                         info!("atmosphere thread starting");
                         running = true
                     }
+                    Ok(ReaderMessage::Recalibrate) => {
+                        info!("atmosphere thread recalibrating");
+                        if let Err(e) = atmo_i2c.reload_calibration() {
+                            if reading_sender.send(Err(AtmosphereError::Internal(e))).is_err() {
+                                error!("could not trigger recalibration in atmosphere i2c");
+                            }
+                        }
+                    }
+                    Ok(ReaderMessage::ChangeSeaLevelPressure(pressure)) => {
+                        info!("atmosphere thread changing sea level pressure to {}", pressure);
+                        atmo_i2c.set_sea_level_pressure( pressure);
+                    }
                 }
 
                 let reading = Self::perform_reading(&mut atmo_i2c, running, &features);
@@ -131,8 +160,7 @@ impl Atmosphere {
         Ok(if running && features.temperature_enabled() {
             trace!("running && temperature enabled");
             let (temp_fine, temperature) = atmo_i2c
-                .read_temperature()
-                .wrap_err("Could not get temperature reading")?;
+                .read_temperature()?;
             trace!("read temperature: {:?} {:?}", temp_fine, temperature);
 
             let pressure = features
@@ -140,7 +168,6 @@ impl Atmosphere {
                 .then(|| {
                     atmo_i2c
                         .read_pressure(temp_fine)
-                        .wrap_err("Could not get pressure reading")
                 })
                 .transpose()?;
             trace!("read pressure: {:?}", pressure);
@@ -150,7 +177,6 @@ impl Atmosphere {
                 .then(|| {
                     atmo_i2c
                         .read_humidity(temp_fine)
-                        .wrap_err("Could not get humidity reading")
                 })
                 .transpose()?;
             trace!("read humidity: {:?}", humidity);
@@ -181,18 +207,30 @@ impl Atmosphere {
     pub fn pause(&self) -> Result<()> {
         self.message_sender
             .send(ReaderMessage::Pause)
-            .wrap_err("Could not send pause message to atmosphere reading thread")
+            .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn restart(&self) -> Result<()> {
         self.message_sender
             .send(ReaderMessage::Start)
-            .wrap_err("Could not send (re)start message to atmosphere reading thread")
+            .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn stop(&self) -> Result<()> {
         self.message_sender
             .send(ReaderMessage::Stop)
-            .wrap_err("Could not send stop message to atmosphere reading thread")
+            .map_err(|_| AtmosphereError::Send)
+    }
+
+    pub fn recalibrate(&self) -> Result<()> {
+        self.message_sender
+            .send(ReaderMessage::Recalibrate)
+            .map_err(|_| AtmosphereError::Send)
+    }
+
+    pub fn change_sea_level_pressure(&self, pressure: f32) -> Result<()> {
+        self.message_sender
+            .send(ReaderMessage::ChangeSeaLevelPressure(pressure))
+            .map_err(|_| AtmosphereError::Send)
     }
 }

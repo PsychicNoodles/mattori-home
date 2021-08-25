@@ -1,0 +1,19 @@
+[package]
+name = "mattori-home-peripherals"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rppal = { git = "https://github.com/PsychicNoodles/rppal.git" }
+thiserror = "1"
+tokio = { version = "1.10", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+log = "0.4"
+async-stream = "0.3"
+lazy_static = "1"
+num-traits = "0.2"
+itertools = "0.10"
+cached = "0.25"
+packed_struct = "0.6"

@@ -1,52 +1,38 @@
-
-
 use std::thread::sleep;
-
-use color_eyre::eyre::{eyre, Result, WrapErr};
+use std::time::{Duration};
 
 use num_traits::{clamp, Zero};
 
-use std::time::{Duration};
-
-
-
-use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, Mode, Register};
-
-
-
-#[derive(Clone, Debug)]
-pub(super) enum ReaderMessage {
-    Start,
-    Pause,
-    ChangeEnabled(EnabledFeatures),
-    Stop,
-}
+use crate::atmosphere::types::{AtmoI2c, Mode, Register, Result, InternalResult, AtmoI2cInternalError, BaseResult, AtmoI2cError};
 
 impl AtmoI2c {
-    pub(super) fn verify_id(&self) -> Result<bool> {
+    pub fn verify_id(&self) -> InternalResult<bool> {
         self.read_byte(Register::ChipId)
-            .wrap_err("Could not read chip id register")
+            .map_err(AtmoI2cInternalError::ChipId)
             .map(|id| id == Self::CHIP_ID)
     }
 
-    pub(super) fn reset_sensor(&self) -> Result<()> {
+    fn do_reset_sensor(&self) -> BaseResult<()> {
         let guard = self.lock_i2c()?;
         Self::write_register_to(&guard, Register::SoftReset, [0xb6; 32])?;
+        Ok(())
+    }
+
+    pub fn reset_sensor(&self) -> InternalResult<()> {
+        self.do_reset_sensor().map_err(AtmoI2cInternalError::Sensor)?;
         sleep(Duration::from_millis(4));
         Ok(())
     }
 
     // mutable borrow of self, so no need to maintain a mutex lock
-    pub(super) fn read_temperature(&mut self) -> Result<(f32, f32)> {
+    fn do_read_temperature(&mut self) -> InternalResult<(f32,f32)> {
         if self.mode != Mode::Normal {
-            self.set_mode(Mode::Force)
-                .wrap_err("Could not set mode to force")?;
-            self.until_status_ok()
-                .wrap_err("Could not check if status was ok")?;
+            self.set_mode(Mode::Force)?;
+            // todo deal with potential lock here
+            self.until_status_ok()?;
         }
         let raw_temp = self
-            .read24(Register::TempData)
-            .wrap_err("Could not read from tempdata register")?
+            .read24(Register::TempData)?
             / 16.0;
         let temperature = &self.calibration.temperature;
         let (temp1, temp2, temp3) = (
@@ -62,10 +48,13 @@ impl AtmoI2c {
         Ok((temp_fine, temp_fine / 5120.0))
     }
 
-    pub(super) fn read_pressure(&self, temp_fine: f32) -> Result<f32> {
+    pub fn read_temperature(&mut self) -> Result<(f32, f32)> {
+        self.do_read_temperature().map_err(AtmoI2cError::Temperature)
+    }
+
+    fn do_read_pressure(&self, temp_fine: f32) -> InternalResult<f32> {
         let adc = self
-            .read24(Register::PressureData)
-            .wrap_err("Could not read pressure data register")?
+            .read24(Register::PressureData)?
             / 16.0;
         let pressure = &self.calibration.pressure;
         let (pres1, pres2, pres3, pres4, pres5, pres6, pres7, pres8, pres9) = (
@@ -88,9 +77,7 @@ impl AtmoI2c {
         let var1 = (1.0 + var1 / 32768.0) * pres1;
 
         if var1.is_zero() {
-            return Err(eyre!(
-                "Invalid result calculating pressure from calibration registers"
-            ));
+            return Err(AtmoI2cInternalError::Calculation);
         }
 
         let pressure = 1048576.0 - adc;
@@ -102,10 +89,13 @@ impl AtmoI2c {
         Ok(pressure / 100.0)
     }
 
-    pub(super) fn read_humidity(&self, temp_fine: f32) -> Result<f32> {
+    pub fn read_pressure(&self, temp_fine: f32) -> Result<f32> {
+        self.do_read_pressure(temp_fine).map_err(AtmoI2cError::Pressure)
+    }
+
+    fn do_read_humidity(&self, temp_fine: f32) -> InternalResult<f32> {
         let hum = self
-            .read_register(Register::HumidData, |buf| [buf[0], buf[1]])
-            .wrap_err("Could not read humidity data register")?;
+            .read_register(Register::HumidData, |buf| [buf[0], buf[1]])?;
         let adc = ((hum[0] as i32) << 8 | hum[1] as i32) as f32;
         let humidity = &self.calibration.humidity;
         let (hum1, hum2, hum3, hum4, hum5, hum6) = (
@@ -128,11 +118,15 @@ impl AtmoI2c {
         Ok(clamp(humidity, 0.0, 100.0))
     }
 
-    pub(super) fn read_altitude(&self, pressure: f32) -> f32 {
+    pub fn read_humidity(&self, temp_fine: f32) -> Result<f32> {
+        self.do_read_humidity(temp_fine).map_err(AtmoI2cError::Humidity)
+    }
+
+    pub fn read_altitude(&self, pressure: f32) -> f32 {
         44330.0 * (1.0 - (pressure / self.sea_level_pressure).powf(0.1903))
     }
 
-    fn until_status_ok(&self) -> Result<()> {
+    fn until_status_ok(&self) -> BaseResult<()> {
         let guard = self.lock_i2c()?;
         loop {
             if Self::status_ok(&guard)? {

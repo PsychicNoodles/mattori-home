@@ -1,9 +1,8 @@
-use color_eyre::eyre::WrapErr;
-use color_eyre::Result;
 use rppal::gpio::{Gpio, OutputPin};
 
 use std::str::FromStr;
 use thiserror::Error;
+use crate::I2cError;
 
 #[derive(Debug)]
 pub enum Leds {
@@ -36,6 +35,14 @@ impl From<Leds> for u8 {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum LedError {
+    #[error(transparent)]
+    I2cError(#[from] I2cError)
+}
+
+pub type Result<T> = std::result::Result<T, LedError>;
+
 pub struct Led {
     pin: OutputPin,
 }
@@ -43,9 +50,9 @@ pub struct Led {
 impl Led {
     pub fn new(pin: u8) -> Result<Led> {
         let led = Gpio::new()
-            .wrap_err("Could not initialize gpio")?
+            .map_err(|_| I2cError::Initialization)?
             .get(pin)
-            .wrap_err_with(|| format!("Could not get gpio pin {}", pin))?
+            .map_err(|_| I2cError::Pin(pin))?
             .into_output();
         Ok(Led { pin: led })
     }
