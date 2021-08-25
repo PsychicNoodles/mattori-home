@@ -114,7 +114,7 @@ impl Atmosphere {
 
                 let reading = Self::perform_reading(&mut atmo_i2c, running, &features);
 
-                if let Err(_) = reading_sender.send(reading) {
+                if reading_sender.send(reading).is_err() {
                     info!("sent to no reading receivers");
                 }
             }

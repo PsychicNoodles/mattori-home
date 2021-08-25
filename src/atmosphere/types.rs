@@ -4,7 +4,6 @@ use std::sync::{Mutex, MutexGuard};
 use color_eyre::eyre::{eyre, Result, WrapErr};
 use rppal::i2c::I2c;
 
-
 use crate::atmosphere::calibration::Calibration;
 
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
@@ -201,7 +200,7 @@ impl AtmoI2c {
         Self::read_register_from(&self.lock_i2c()?, register, |buf| {
             IntoIter::new(buf)
                 .take(3)
-                .fold(0.0, |acc, b| (acc * 256.0) + (b & 0xff) as f32)
+                .fold(0.0, |acc, b| (acc * 256.0) + b as f32)
         })
     }
 
@@ -211,7 +210,7 @@ impl AtmoI2c {
         mut buf: [u8; 32],
     ) -> Result<()> {
         i2c_guard
-            .block_write(register.into(), &mut buf)
+            .block_write(register.into(), &buf)
             .wrap_err_with(|| {
                 format!(
                     "Could not write values {:X?} to register {}",
