@@ -44,10 +44,12 @@ impl IrTarget for Sanyo {
     const SEQ_LENGTH: usize = 136;
 
     fn power_off(&mut self) -> Result<IrSequence, Self::Error> {
+        self.powered = false;
         self.as_ir_sequence(SanyoTrigger::Off)
     }
 
     fn power_on(&mut self) -> Result<IrSequence, Self::Error> {
+        self.powered = true;
         self.as_ir_sequence(SanyoTrigger::On)
     }
 
