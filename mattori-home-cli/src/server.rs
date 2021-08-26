@@ -1,99 +1,19 @@
-use mattori_home::home_server::Home;
-use mattori_home::{AcStatus, AcStatusParam, AtmosphereReading};
-use mattori_home_peripherals::atmosphere::{Atmosphere, AtmosphereFeatures, Reading};
-use mattori_home_peripherals::ir::output::IrOut;
-use mattori_home_peripherals::ir::types::{ACMode, IrStatus, IrTarget};
-
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display};
 use std::pin::Pin;
+
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::WatchStream;
 use tokio_stream::{Stream, StreamExt};
 
+use mattori_home::home_server::Home;
+use mattori_home::{AcStatus, AcStatusParam, AtmosphereReading};
+use mattori_home_peripherals::atmosphere::Atmosphere;
+use mattori_home_peripherals::ir::output::IrOut;
+use mattori_home_peripherals::ir::types::{ACMode, IrTarget};
+
 pub mod mattori_home {
     tonic::include_proto!("mattori_home");
-}
-
-impl From<mattori_home::AtmosphereFeatures> for AtmosphereFeatures {
-    fn from(
-        mattori_home::AtmosphereFeatures {
-            temperature,
-            pressure,
-            humidity,
-            altitude,
-        }: mattori_home::AtmosphereFeatures,
-    ) -> Self {
-        AtmosphereFeatures {
-            temperature,
-            pressure,
-            humidity,
-            altitude,
-        }
-    }
-}
-
-impl From<ACMode> for mattori_home::ac_status::Mode {
-    fn from(mode: ACMode) -> Self {
-        match mode {
-            ACMode::Auto => mattori_home::ac_status::Mode::Auto,
-            ACMode::Warm => mattori_home::ac_status::Mode::Warm,
-            ACMode::Dry => mattori_home::ac_status::Mode::Dry,
-            ACMode::Cool => mattori_home::ac_status::Mode::Cool,
-            ACMode::Fan => mattori_home::ac_status::Mode::Fan,
-        }
-    }
-}
-
-impl From<mattori_home::ac_status::Mode> for ACMode {
-    fn from(mode: mattori_home::ac_status::Mode) -> Self {
-        match mode {
-            mattori_home::ac_status::Mode::Auto => ACMode::Auto,
-            mattori_home::ac_status::Mode::Warm => ACMode::Warm,
-            mattori_home::ac_status::Mode::Dry => ACMode::Dry,
-            mattori_home::ac_status::Mode::Cool => ACMode::Cool,
-            mattori_home::ac_status::Mode::Fan => ACMode::Fan,
-        }
-    }
-}
-
-impl<T: IrTarget> From<IrStatus<T>> for mattori_home::AcStatus
-where
-    <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
-{
-    fn from(
-        IrStatus {
-            powered,
-            mode,
-            temperature,
-        }: IrStatus<T>,
-    ) -> Self {
-        let mut ac_status = AcStatus {
-            powered,
-            temperature: temperature.into(),
-            ..AcStatus::default()
-        };
-        ac_status.set_mode(mode.into());
-        ac_status
-    }
-}
-
-impl From<Reading> for mattori_home::AtmosphereReading {
-    fn from(
-        Reading {
-            temperature,
-            pressure,
-            humidity,
-            altitude,
-        }: Reading,
-    ) -> Self {
-        mattori_home::AtmosphereReading {
-            temperature: temperature.unwrap_or_default(),
-            pressure: pressure.unwrap_or_default(),
-            humidity: humidity.unwrap_or_default(),
-            altitude: altitude.unwrap_or_default(),
-        }
-    }
 }
 
 #[derive(Debug)]
