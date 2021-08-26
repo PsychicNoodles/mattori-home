@@ -149,7 +149,7 @@ where
             mode,
             temperature,
         }: IrStatus<T>,
-    ) -> Result<Option<()>, T> {
+    ) -> Result<(), T> {
         let results = IntoIter::new([
             Some(self.target.mode_set(mode)),
             self.target.temp_set(temperature),
@@ -167,7 +167,7 @@ where
 
         if let Some(res) = results.iter().find(|r| r.is_ok()) {
             match res {
-                Ok(seq) => self.send(seq.clone()).map(Some),
+                Ok(seq) => self.send(seq.clone()),
                 Err(e) => Err(IrOutError::IrTarget((*e).clone())),
             }
         } else {

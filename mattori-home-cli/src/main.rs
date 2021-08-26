@@ -13,7 +13,9 @@ use mattori_home_peripherals::ir::input::IrIn;
 use mattori_home_peripherals::ir::output::IrOut;
 use mattori_home_peripherals::ir::sanyo::types::SanyoTemperatureCode;
 use mattori_home_peripherals::ir::sanyo::Sanyo;
-use mattori_home_peripherals::ir::types::{ACMode, IrFormat, IrPulse, IrSequence, IrTarget};
+use mattori_home_peripherals::ir::types::{
+    ACMode, IrFormat, IrPulse, IrSequence, IrStatus, IrTarget,
+};
 use mattori_home_peripherals::lcd::Lcd;
 use mattori_home_peripherals::led::{Led, Leds};
 use std::net::SocketAddr;
@@ -64,19 +66,18 @@ struct AcState {
     temperature: SanyoTemperatureCode,
 }
 
-impl AcState {
-    fn send(
-        &self,
-        target: &mut Sanyo,
-    ) -> std::result::Result<IrSequence, <Sanyo as IrTarget>::Error> {
-        target.mode_set(self.mode.clone())?;
-        if let Some(res) = target.temp_set(self.temperature.clone()) {
-            res?;
-        }
-        if self.unpowered {
-            target.power_off()
-        } else {
-            target.power_on()
+impl From<AcState> for IrStatus<Sanyo> {
+    fn from(
+        AcState {
+            unpowered,
+            mode,
+            temperature,
+        }: AcState,
+    ) -> Self {
+        IrStatus {
+            powered: !unpowered,
+            mode,
+            temperature,
         }
     }
 }
@@ -154,7 +155,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     SendIrOpt::Encoded { hex } => {
                         ir_out.send(IrSequence(hex.into_iter().map(IrPulse).collect()))?
                     }
-                    SendIrOpt::Registered(state) => ir_out.send_target(|o| state.send(o))?,
+                    SendIrOpt::Registered(state) => ir_out.send_status(state.into())?,
                 }
                 sleep(Duration::from_secs(1));
                 println!("Finished sending!");
@@ -193,7 +194,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             initial_state,
         } => {
             let mut out = IrOut::default_pin(Sanyo::default())?;
-            out.send_target(|o| initial_state.send(o))?;
+            out.send_status(initial_state.into())?;
             let home = HomeImpl {
                 atmosphere: Atmosphere::default_addr()?,
                 ir_out: Mutex::new(out),
