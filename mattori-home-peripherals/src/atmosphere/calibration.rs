@@ -38,9 +38,9 @@ pub struct Pressure {
 pub struct PackedHumidity {
     b: i16,
     c: u8,
-    d: u8,
+    d: i8,
     e: u8,
-    f: i16,
+    f: i8,
     g: i8,
 }
 
