@@ -163,6 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ir_out: Mutex::new(IrOut::default_pin(Sanyo::default())?),
             };
 
+            println!("Starting server at {}", addr);
+
             Server::builder()
                 .add_service(HomeServer::new(home))
                 .serve(addr)
