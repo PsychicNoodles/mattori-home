@@ -3,6 +3,7 @@ mod server;
 
 extern crate pretty_env_logger;
 
+use crate::server::{mattori_home::home_server::HomeServer, HomeImpl};
 use color_eyre::eyre::WrapErr;
 use mattori_home_peripherals::atmosphere::Atmosphere;
 use mattori_home_peripherals::ir::input::IrIn;
@@ -11,12 +12,15 @@ use mattori_home_peripherals::ir::sanyo::Sanyo;
 use mattori_home_peripherals::ir::types::{IrFormat, IrPulse, IrSequence, IrTarget};
 use mattori_home_peripherals::lcd::Lcd;
 use mattori_home_peripherals::led::{Led, Leds};
+use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::thread::sleep;
 use std::time::Duration;
 use structopt::StructOpt;
 use tokio::pin;
+use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
+use tonic::transport::Server;
 
 fn parse_encoded(src: &str) -> Result<u128, ParseIntError> {
     u128::from_str_radix(src, 16)
@@ -69,6 +73,11 @@ enum Opt {
         /// Duration of display in seconds
         #[structopt(short, long)]
         duration: u64,
+    },
+    Server {
+        /// Address for server
+        #[structopt(short, long, default_value = "[::1]:50051")]
+        addr: SocketAddr,
     },
 }
 
@@ -147,6 +156,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lcd.wait_for_processing().await?;
             sleep(Duration::from_secs(duration));
             lcd.shutdown().await?;
+        }
+        Opt::Server { addr } => {
+            let home = HomeImpl {
+                atmosphere: Atmosphere::default_addr()?,
+                ir_out: Mutex::new(IrOut::default_pin(Sanyo::default())?),
+            };
+
+            Server::builder()
+                .add_service(HomeServer::new(home))
+                .serve(addr)
+                .await?;
         }
     }
 

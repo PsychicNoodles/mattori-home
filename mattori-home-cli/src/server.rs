@@ -17,16 +17,16 @@ pub mod mattori_home {
 }
 
 #[derive(Debug)]
-pub struct HomeServer<T: IrTarget + Debug + Send + Sync + 'static>
+pub struct HomeImpl<T: IrTarget + Debug + Send + Sync + 'static>
 where
     <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
 {
-    atmosphere: Atmosphere,
-    ir_out: Mutex<IrOut<T>>,
+    pub atmosphere: Atmosphere,
+    pub ir_out: Mutex<IrOut<T>>,
 }
 
 #[tonic::async_trait]
-impl<T: IrTarget + Debug + Send + Sync + 'static> Home for HomeServer<T>
+impl<T: IrTarget + Debug + Send + Sync + 'static> Home for HomeImpl<T>
 where
     <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
 {
