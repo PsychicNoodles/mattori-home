@@ -71,28 +71,27 @@ where
                             error!("Could not get lock for ir output!");
                         }
                         Ok(mut o) => {
-                            if let Err(e) = o.set_pwm_sequence(
-                                seq.into_inner().into_iter().enumerate().fold(
-                                    Vec::new(),
-                                    |mut acc, (i, pulse)| {
-                                        if i % 2 == 0 {
-                                            acc.extend(
-                                                iter::repeat(PwmStep::Pulse(PwmPulse {
-                                                    period: Duration::from_micros(18),
-                                                    pulse_width: Duration::from_micros(8),
-                                                }))
-                                                .take((pulse.into_inner() / 26) as usize),
-                                            );
-                                        } else {
-                                            acc.push(PwmStep::Wait(Duration::from_micros(
-                                                pulse.0 as u64,
-                                            )));
-                                        }
-                                        acc
-                                    },
-                                ),
-                                false,
-                            ) {
+                            let pwm_sequence = seq.into_inner().into_iter().enumerate().fold(
+                                Vec::new(),
+                                |mut acc, (i, pulse)| {
+                                    if i % 2 == 0 {
+                                        acc.extend(
+                                            iter::repeat(PwmStep::Pulse(PwmPulse {
+                                                period: Duration::from_micros(18),
+                                                pulse_width: Duration::from_micros(8),
+                                            }))
+                                            .take((pulse.into_inner() / 26) as usize),
+                                        );
+                                    } else {
+                                        acc.push(PwmStep::Wait(Duration::from_micros(
+                                            pulse.0 as u64,
+                                        )));
+                                    }
+                                    acc
+                                },
+                            );
+                            debug!("queuing sequence: {:?}", pwm_sequence);
+                            if let Err(e) = o.set_pwm_sequence(pwm_sequence, false) {
                                 error!("Could not set up pwm for ir output: {:?}", e);
                             }
                         }
@@ -138,6 +137,7 @@ where
         action: F,
     ) -> Result<(), T> {
         let sequence = action(&mut self.target).map_err(IrOutError::IrTarget)?;
+        debug!("sending sequence to target {:?}", sequence);
         self.send(sequence)
     }
 
