@@ -9,6 +9,7 @@ use tokio::task::spawn_blocking;
 use crate::ir::types::{IrSequence, IrStatus, IrTarget};
 use crate::I2cError;
 use core::iter;
+use std::array::IntoIter;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display};
 
@@ -139,6 +140,41 @@ where
         let sequence = action(&mut self.target).map_err(IrOutError::IrTarget)?;
         debug!("sending sequence to target {:?}", sequence);
         self.send(sequence)
+    }
+
+    pub fn send_status(
+        &mut self,
+        IrStatus {
+            powered,
+            mode,
+            temperature,
+        }: IrStatus<T>,
+    ) -> Result<Option<()>, T> {
+        let results = IntoIter::new([
+            Some(self.target.mode_set(mode)),
+            self.target.temp_set(temperature),
+            (powered != self.target.is_powered()).then(|| {
+                if powered {
+                    self.target.power_on()
+                } else {
+                    self.target.power_off()
+                }
+            }),
+        ])
+        .rev()
+        .flatten()
+        .collect::<Vec<_>>();
+
+        if let Some(res) = results.iter().find(|r| r.is_ok()) {
+            match res {
+                Ok(seq) => self.send(seq.clone()).map(Some),
+                Err(e) => Err(IrOutError::IrTarget((*e).clone())),
+            }
+        } else {
+            return Err(IrOutError::IrTarget(
+                results.last().unwrap().clone().unwrap_err(),
+            ));
+        }
     }
 
     pub fn status(&self) -> IrStatus<T> {

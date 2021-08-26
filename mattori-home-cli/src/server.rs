@@ -10,7 +10,7 @@ use mattori_home::home_server::Home;
 use mattori_home::{AcStatus, AcStatusParam, AtmosphereReading};
 use mattori_home_peripherals::atmosphere::Atmosphere;
 use mattori_home_peripherals::ir::output::IrOut;
-use mattori_home_peripherals::ir::types::{ACMode, IrTarget};
+use mattori_home_peripherals::ir::types::{ACMode, IrStatus, IrTarget};
 
 pub mod mattori_home {
     tonic::include_proto!("mattori_home");
@@ -68,28 +68,17 @@ where
         &self,
         request: tonic::Request<AcStatus>,
     ) -> Result<tonic::Response<AcStatus>, tonic::Status> {
-        let new_status = request.into_inner();
-        let new_powered = new_status.powered;
-        let powered_change = self.ir_out.lock().await.status().powered != new_powered;
-        let new_mode = ACMode::from(new_status.mode());
-        let new_temperature = T::Temperature::try_from(new_status.temperature)
-            .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?;
+        let ac_status = request.into_inner();
+        let new_status = IrStatus {
+            powered: ac_status.powered,
+            mode: ACMode::from(ac_status.mode()),
+            temperature: T::Temperature::try_from(ac_status.temperature)
+                .map_err(|e| tonic::Status::invalid_argument(e.to_string()))?,
+        };
         self.ir_out
             .lock()
             .await
-            .send_target(move |target| {
-                target.mode_set(new_mode)?;
-                let temp_set_sequence = target.temp_set(new_temperature)?;
-                if powered_change {
-                    if new_powered {
-                        target.power_on()
-                    } else {
-                        target.power_off()
-                    }
-                } else {
-                    Ok(temp_set_sequence)
-                }
-            })
+            .send_status(new_status)
             .map_err(|e| tonic::Status::internal(e.to_string()))?;
         Ok(tonic::Response::new(
             self.ir_out.lock().await.status().into(),

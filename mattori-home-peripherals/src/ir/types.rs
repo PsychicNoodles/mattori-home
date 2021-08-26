@@ -120,15 +120,18 @@ where
     <<Self as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
 {
     type Format: IrFormat;
-    type Error: std::error::Error + Send + Sync;
+    type Error: std::error::Error + Send + Sync + Clone;
     type Temperature: TemperatureCode + Send + Sync;
     const SEQ_LENGTH: usize;
     fn power_off(&mut self) -> Result<IrSequence, Self::Error>;
     fn power_on(&mut self) -> Result<IrSequence, Self::Error>;
+    fn is_powered(&self) -> bool;
     fn temp_up(&mut self) -> Result<IrSequence, Self::Error>;
     fn temp_down(&mut self) -> Result<IrSequence, Self::Error>;
-    fn temp_set(&mut self, temp: Self::Temperature) -> Result<IrSequence, Self::Error>;
+    fn temp_set(&mut self, temp: Self::Temperature) -> Option<Result<IrSequence, Self::Error>>;
+    fn temperature(&self) -> &Self::Temperature;
     fn mode_set(&mut self, mode: ACMode) -> Result<IrSequence, Self::Error>;
+    fn mode(&self) -> &ACMode;
     fn status(&self) -> IrStatus<Self>
     where
         Self: Sized;

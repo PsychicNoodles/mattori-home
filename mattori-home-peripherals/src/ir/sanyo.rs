@@ -11,8 +11,6 @@ use std::cmp::Ordering;
 pub enum SanyoError {
     #[error("Temperature out of range")]
     TemperatureRange,
-    #[error("Already at this temperature")]
-    TemperatureSame,
     #[error("Could not encode ir sequence")]
     EncodeError(#[from] IrEncodeError),
 }
@@ -53,6 +51,10 @@ impl IrTarget for Sanyo {
         self.as_ir_sequence(SanyoTrigger::On)
     }
 
+    fn is_powered(&self) -> bool {
+        self.powered
+    }
+
     fn temp_up(&mut self) -> Result<IrSequence, Self::Error> {
         self.temp = self.temp.up().ok_or(SanyoError::TemperatureRange)?;
         self.as_ir_sequence(SanyoTrigger::Up)
@@ -63,20 +65,28 @@ impl IrTarget for Sanyo {
         self.as_ir_sequence(SanyoTrigger::Down)
     }
 
-    fn temp_set(&mut self, temp: Self::Temperature) -> Result<IrSequence, Self::Error> {
+    fn temp_set(&mut self, temp: Self::Temperature) -> Option<Result<IrSequence, Self::Error>> {
         let trigger = match self.temp.cmp(&temp) {
             Ordering::Less => SanyoTrigger::Down,
-            Ordering::Equal => return Err(SanyoError::TemperatureSame),
+            Ordering::Equal => return None,
             Ordering::Greater => SanyoTrigger::Up,
         };
         self.temp = temp;
-        self.as_ir_sequence(trigger)
+        Some(self.as_ir_sequence(trigger))
+    }
+
+    fn temperature(&self) -> &Self::Temperature {
+        &self.temp
     }
 
     fn mode_set(&mut self, mode: ACMode) -> Result<IrSequence, Self::Error> {
         self.mode = mode;
         // TODO fix
         self.as_ir_sequence(SanyoTrigger::On)
+    }
+
+    fn mode(&self) -> &ACMode {
+        &self.mode
     }
 
     fn status(&self) -> IrStatus<Self> {

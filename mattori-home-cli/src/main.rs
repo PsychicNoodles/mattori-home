@@ -70,7 +70,9 @@ impl AcState {
         target: &mut Sanyo,
     ) -> std::result::Result<IrSequence, <Sanyo as IrTarget>::Error> {
         target.mode_set(self.mode.clone())?;
-        target.temp_set(self.temperature.clone())?;
+        if let Some(res) = target.temp_set(self.temperature.clone()) {
+            res?;
+        }
         if self.unpowered {
             target.power_off()
         } else {
