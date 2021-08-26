@@ -8,8 +8,9 @@ use color_eyre::eyre::WrapErr;
 use mattori_home_peripherals::atmosphere::Atmosphere;
 use mattori_home_peripherals::ir::input::IrIn;
 use mattori_home_peripherals::ir::output::IrOut;
+use mattori_home_peripherals::ir::sanyo::types::SanyoTemperatureCode;
 use mattori_home_peripherals::ir::sanyo::Sanyo;
-use mattori_home_peripherals::ir::types::{IrFormat, IrPulse, IrSequence, IrTarget};
+use mattori_home_peripherals::ir::types::{ACMode, IrFormat, IrPulse, IrSequence, IrTarget};
 use mattori_home_peripherals::lcd::Lcd;
 use mattori_home_peripherals::led::{Led, Leds};
 use std::net::SocketAddr;
@@ -50,6 +51,16 @@ enum IrOpt {
 }
 
 #[derive(StructOpt, Debug)]
+struct AcState {
+    #[structopt(short, long)]
+    unpowered: bool,
+    #[structopt(short, long, default_value = "cool")]
+    mode: ACMode,
+    #[structopt(short, long, default_value = "25")]
+    temperature: SanyoTemperatureCode,
+}
+
+#[derive(StructOpt, Debug)]
 enum Opt {
     Ir(IrOpt),
     Atmosphere {
@@ -78,6 +89,9 @@ enum Opt {
         /// Address for server
         #[structopt(short, long, default_value = "[::1]:50051")]
         addr: SocketAddr,
+
+        #[structopt(flatten)]
+        initial_state: AcState,
     },
 }
 
@@ -157,10 +171,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sleep(Duration::from_secs(duration));
             lcd.shutdown().await?;
         }
-        Opt::Server { addr } => {
+        Opt::Server {
+            addr,
+            initial_state,
+        } => {
+            let mut out = IrOut::default_pin(Sanyo::default())?;
+            out.send_target(|target| {
+                target.mode_set(initial_state.mode)?;
+                target.temp_set(initial_state.temperature)?;
+                if initial_state.unpowered {
+                    target.power_off()
+                } else {
+                    target.power_on()
+                }
+            })?;
             let home = HomeImpl {
                 atmosphere: Atmosphere::default_addr()?,
-                ir_out: Mutex::new(IrOut::default_pin(Sanyo::default())?),
+                ir_out: Mutex::new(out),
             };
 
             println!("Starting server at {}", addr);

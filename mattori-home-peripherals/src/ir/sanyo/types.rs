@@ -7,6 +7,7 @@ use tokio::sync::OnceCell;
 use crate::ir::types::{ACMode, IrPulse, IrPulseBytes, TemperatureCode};
 use core::convert;
 use std::array::IntoIter;
+use std::str::FromStr;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SanyoTemperatureCode {
@@ -71,12 +72,11 @@ impl TryFrom<u32> for SanyoTemperatureCode {
     }
 }
 
-impl TryFrom<String> for SanyoTemperatureCode {
-    type Error = InvalidSanyoTemperatureCode;
+impl FromStr for SanyoTemperatureCode {
+    type Err = InvalidSanyoTemperatureCode;
 
-    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        value
-            .to_lowercase()
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.to_lowercase()
             .parse::<u32>()
             .map_err(|_| InvalidSanyoTemperatureCode)
             .map(SanyoTemperatureCode::try_from)

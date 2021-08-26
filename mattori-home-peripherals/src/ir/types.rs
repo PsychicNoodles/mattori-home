@@ -2,6 +2,7 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use std::convert::TryFrom;
 use std::fmt::Display;
+use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -78,6 +79,25 @@ pub enum ACMode {
 impl Default for ACMode {
     fn default() -> Self {
         ACMode::Auto
+    }
+}
+
+#[derive(Error, Debug)]
+#[error("Invalid AC mode")]
+pub struct InvalidAcMode;
+
+impl FromStr for ACMode {
+    type Err = InvalidAcMode;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "auto" => Ok(ACMode::Auto),
+            "warm" => Ok(ACMode::Warm),
+            "dry" => Ok(ACMode::Dry),
+            "cool" => Ok(ACMode::Cool),
+            "fan" => Ok(ACMode::Fan),
+            _ => Err(InvalidAcMode),
+        }
     }
 }
 
