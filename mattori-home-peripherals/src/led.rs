@@ -1,8 +1,8 @@
 use rppal::gpio::{Gpio, OutputPin};
 
+use crate::I2cError;
 use std::str::FromStr;
 use thiserror::Error;
-use crate::I2cError;
 
 #[derive(Debug)]
 pub enum Leds {
@@ -10,7 +10,7 @@ pub enum Leds {
     Yellow,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 #[error("Invalid led name")]
 pub struct ParseLedsError {}
 
@@ -35,14 +35,15 @@ impl From<Leds> for u8 {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum LedError {
     #[error(transparent)]
-    I2cError(#[from] I2cError)
+    I2cError(#[from] I2cError),
 }
 
 pub type Result<T> = std::result::Result<T, LedError>;
 
+#[derive(Debug)]
 pub struct Led {
     pin: OutputPin,
 }

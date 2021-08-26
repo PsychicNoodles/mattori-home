@@ -1,19 +1,21 @@
+mod server;
+
 extern crate pretty_env_logger;
 
 use color_eyre::eyre::WrapErr;
+use mattori_home_peripherals::atmosphere::Atmosphere;
+use mattori_home_peripherals::ir::input::IrIn;
+use mattori_home_peripherals::ir::output::IrOut;
+use mattori_home_peripherals::ir::sanyo::Sanyo;
+use mattori_home_peripherals::ir::types::{IrFormat, IrPulse, IrSequence, IrTarget};
+use mattori_home_peripherals::lcd::Lcd;
+use mattori_home_peripherals::led::{Led, Leds};
 use std::num::ParseIntError;
 use std::thread::sleep;
 use std::time::Duration;
 use structopt::StructOpt;
 use tokio::pin;
 use tokio_stream::StreamExt;
-use mattori_home_peripherals::led::{Leds, Led};
-use mattori_home_peripherals::ir::input::IrIn;
-use mattori_home_peripherals::ir::output::IrOut;
-use mattori_home_peripherals::ir::sanyo::Sanyo;
-use mattori_home_peripherals::ir::types::{IrTarget, IrFormat, IrSequence, IrPulse};
-use mattori_home_peripherals::atmosphere::Atmosphere;
-use mattori_home_peripherals::lcd::Lcd;
 
 fn parse_encoded(src: &str) -> Result<u128, ParseIntError> {
     u128::from_str_radix(src, 16)

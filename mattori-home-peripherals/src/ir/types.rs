@@ -1,5 +1,7 @@
 use itertools::Itertools;
 use num_traits::AsPrimitive;
+use std::convert::TryFrom;
+use std::fmt::Display;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -58,22 +60,54 @@ pub trait IrFormat {
 
 // target
 
-pub trait TemperatureCode {}
+pub trait TemperatureCode: TryFrom<u32> + Into<u32>
+where
+    <Self as TryFrom<u32>>::Error: Display,
+{
+}
 
-pub trait ACMode {}
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum ACMode {
+    Auto,
+    Warm,
+    Dry,
+    Cool,
+    Fan,
+}
 
-pub trait IrTarget {
+impl Default for ACMode {
+    fn default() -> Self {
+        ACMode::Auto
+    }
+}
+
+#[derive(Debug)]
+pub struct IrStatus<T: IrTarget>
+where
+    <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
+{
+    pub powered: bool,
+    pub mode: ACMode,
+    pub temperature: T::Temperature,
+}
+
+pub trait IrTarget
+where
+    <<Self as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
+{
     type Format: IrFormat;
     type Error: std::error::Error + Send + Sync;
-    type Temperature: TemperatureCode;
-    type Mode: ACMode;
+    type Temperature: TemperatureCode + Send + Sync;
     const SEQ_LENGTH: usize;
     fn power_off(&mut self) -> Result<IrSequence, Self::Error>;
     fn power_on(&mut self) -> Result<IrSequence, Self::Error>;
     fn temp_up(&mut self) -> Result<IrSequence, Self::Error>;
     fn temp_down(&mut self) -> Result<IrSequence, Self::Error>;
     fn temp_set(&mut self, temp: Self::Temperature) -> Result<IrSequence, Self::Error>;
-    fn mode_set(&mut self, mode: Self::Mode) -> Result<IrSequence, Self::Error>;
+    fn mode_set(&mut self, mode: ACMode) -> Result<IrSequence, Self::Error>;
+    fn status(&self) -> IrStatus<Self>
+    where
+        Self: Sized;
 }
 
 // source

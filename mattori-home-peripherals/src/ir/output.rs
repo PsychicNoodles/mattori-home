@@ -2,38 +2,51 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use rppal::gpio::{Gpio, PwmPulse, PwmStep};
+use thiserror::Error;
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
-use thiserror::Error;
 
-use crate::ir::types::{IrSequence, IrTarget};
-use core::iter;
+use crate::ir::types::{IrSequence, IrStatus, IrTarget};
 use crate::I2cError;
-use std::fmt::Debug;
+use core::iter;
+use std::convert::TryFrom;
+use std::fmt::{Debug, Display};
 
 const IR_OUTPUT_PIN: u8 = 13;
 
 const WAIT_TIMEOUT: Duration = Duration::from_micros(100);
 
 #[derive(Error, Debug)]
-pub enum IrOutError<E: IrTarget + Debug> {
+pub enum IrOutError<E: IrTarget + Debug>
+where
+    <<E as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
+{
     #[error(transparent)]
     I2cError(#[from] I2cError),
     #[error(transparent)]
     IrTarget(E::Error),
     #[error("Could not send message to ir thread")]
-    Send
+    Send,
+    #[error("Could not acquire message sender mutex")]
+    Mutex,
 }
 
 pub type Result<T, E> = std::result::Result<T, IrOutError<E>>;
 
-pub struct IrOut<T: 'static + IrTarget> {
+#[derive(Debug)]
+pub struct IrOut<T: 'static + IrTarget>
+where
+    <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
+{
     target: T,
-    sequence_sender: mpsc::Sender<IrSequence>,
+    sequence_sender: Mutex<mpsc::Sender<IrSequence>>,
     send_stop_sender: watch::Sender<bool>,
 }
 
-impl<T: 'static + IrTarget + Debug> IrOut<T> {
+impl<T: 'static + IrTarget + Debug> IrOut<T>
+where
+    <<T as IrTarget>::Temperature as TryFrom<u32>>::Error: Display,
+{
     pub fn start(pin: u8, target: T) -> Result<IrOut<T>, T> {
         let out = Arc::new(Mutex::new(
             Gpio::new()
@@ -96,7 +109,7 @@ impl<T: 'static + IrTarget + Debug> IrOut<T> {
         });
         Ok(IrOut {
             target,
-            sequence_sender,
+            sequence_sender: Mutex::new(sequence_sender),
             send_stop_sender,
         })
     }
@@ -108,6 +121,8 @@ impl<T: 'static + IrTarget + Debug> IrOut<T> {
     pub fn send(&self, seq: IrSequence) -> Result<(), T> {
         debug!("sending sequence: {:?}", seq);
         self.sequence_sender
+            .lock()
+            .map_err(|_| IrOutError::Mutex)?
             .send(seq)
             .map_err(|_| IrOutError::Send)
     }
@@ -118,11 +133,15 @@ impl<T: 'static + IrTarget + Debug> IrOut<T> {
             .map_err(|_| IrOutError::Send)
     }
 
-    pub fn send_target<F: FnMut(&mut T) -> Result<IrSequence, T>>(
+    pub fn send_target<F: FnOnce(&mut T) -> std::result::Result<IrSequence, T::Error>>(
         &mut self,
-        mut action: F,
+        action: F,
     ) -> Result<(), T> {
-        let sequence = action(&mut self.target)?;
+        let sequence = action(&mut self.target).map_err(IrOutError::IrTarget)?;
         self.send(sequence)
+    }
+
+    pub fn status(&self) -> IrStatus<T> {
+        self.target.status()
     }
 }

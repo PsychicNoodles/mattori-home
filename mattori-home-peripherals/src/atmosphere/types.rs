@@ -1,11 +1,11 @@
 use std::array::IntoIter;
 use std::sync::{Mutex, MutexGuard};
 
-use thiserror::Error;
 use rppal::i2c::I2c;
+use thiserror::Error;
 
 use crate::atmosphere::calibration::Calibration;
-use crate::I2cError;
+use crate::{I2cError, RppalError};
 
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq)]
 pub enum Mode {
@@ -74,43 +74,6 @@ impl From<Overscan> for u8 {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct EnabledFeatures {
-    pub temperature: bool,
-    pub pressure: bool,
-    pub humidity: bool,
-    pub altitude: bool,
-}
-
-impl Default for EnabledFeatures {
-    fn default() -> Self {
-        Self {
-            temperature: true,
-            pressure: true,
-            humidity: true,
-            altitude: true,
-        }
-    }
-}
-
-impl EnabledFeatures {
-    pub fn temperature_enabled(&self) -> bool {
-        self.temperature || self.pressure_enabled() || self.humidity_enabled()
-    }
-
-    pub fn pressure_enabled(&self) -> bool {
-        self.pressure || self.altitude_enabled()
-    }
-
-    pub fn humidity_enabled(&self) -> bool {
-        self.humidity
-    }
-
-    pub fn altitude_enabled(&self) -> bool {
-        self.altitude
-    }
-}
-
 pub struct AtmoI2c {
     pub i2c: Mutex<I2c>,
     pub mode: Mode,
@@ -125,26 +88,26 @@ pub struct AtmoI2c {
 pub enum AtmoI2cRawReadingType {
     Temperature,
     Pressure,
-    Humidity
+    Humidity,
 }
 
 /// Low level errors
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum AtmoI2cBaseError {
     #[error("Could not read from register {0:?}")]
-    ReadRegister(Register, #[source] rppal::i2c::Error),
+    ReadRegister(Register, #[source] RppalError),
     #[error("Could not write to register {0:?}")]
-    WriteRegister(Register, #[source] rppal::i2c::Error),
+    WriteRegister(Register, #[source] RppalError),
     #[error("Could not acquire i2c mutex")]
     Mutex,
     #[error("Packed data was wrong width")]
     PackedWidth(AtmoI2cRawReadingType),
     #[error("Packed data was of invalid format")]
-    PackedFormat(AtmoI2cRawReadingType, #[source] packed_struct::PackingError)
+    PackedFormat(AtmoI2cRawReadingType, #[source] packed_struct::PackingError),
 }
 
 /// Errors arising from internal mechanisms
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum AtmoI2cInternalError {
     #[error("Could not write to control measure register")]
     ControlMeasure(#[source] AtmoI2cBaseError),
@@ -157,11 +120,11 @@ pub enum AtmoI2cInternalError {
     #[error("Invalid calculating result")]
     Calculation,
     #[error(transparent)]
-    BaseError(#[from] AtmoI2cBaseError)
+    BaseError(#[from] AtmoI2cBaseError),
 }
 
 /// Higher level action errors
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum AtmoI2cError {
     #[error(transparent)]
     I2c(#[from] I2cError),
@@ -178,7 +141,7 @@ pub enum AtmoI2cError {
     #[error("Could not read humidity")]
     Humidity(#[source] AtmoI2cInternalError),
     #[error(transparent)]
-    Internal(#[from] AtmoI2cInternalError)
+    Internal(#[from] AtmoI2cInternalError),
 }
 
 pub type Result<T> = std::result::Result<T, AtmoI2cError>;
@@ -197,9 +160,9 @@ impl AtmoI2c {
         let calibration = Self::read_calibration(
             &i2c_mutex
                 .lock()
-                .map_err(|_| AtmoI2cBaseError::Mutex).map_err(AtmoI2cInternalError::BaseError)?,
-        )
-        ?;
+                .map_err(|_| AtmoI2cBaseError::Mutex)
+                .map_err(AtmoI2cInternalError::BaseError)?,
+        )?;
         let mut res = AtmoI2c {
             i2c: i2c_mutex,
             mode: Mode::Sleep,
@@ -220,9 +183,7 @@ impl AtmoI2c {
     }
 
     pub fn lock_i2c(&self) -> BaseResult<MutexGuard<I2c>> {
-        self.i2c
-            .lock()
-            .map_err(|_| AtmoI2cBaseError::Mutex)
+        self.i2c.lock().map_err(|_| AtmoI2cBaseError::Mutex)
     }
 
     pub fn read_register_from<T, F: FnOnce([u8; 32]) -> T>(
@@ -233,7 +194,7 @@ impl AtmoI2c {
         let mut buf = [0u8; 32];
         i2c_guard
             .block_read(register.into(), &mut buf)
-            .map_err(|source| AtmoI2cBaseError::ReadRegister (register, source))
+            .map_err(|source| AtmoI2cBaseError::ReadRegister(register, RppalError::from(source)))
             .map(|_| buf)
             .map(f)
     }
@@ -269,18 +230,14 @@ impl AtmoI2c {
     ) -> BaseResult<()> {
         i2c_guard
             .block_write(register.into(), &buf)
-            .map_err(|source| AtmoI2cBaseError::WriteRegister (register, source))
+            .map_err(|source| AtmoI2cBaseError::WriteRegister(register, RppalError::from(source)))
     }
 
     // pub fn write_register(&self, register: Register, buf: [u8; 32]) -> Result<()> {
     //     Self::write_register_to(&self.lock_i2c()?, register, buf)
     // }
 
-    pub fn write_byte_to(
-        guard: &MutexGuard<I2c>,
-        register: Register,
-        byte: u8,
-    ) -> BaseResult<()> {
+    pub fn write_byte_to(guard: &MutexGuard<I2c>, register: Register, byte: u8) -> BaseResult<()> {
         Self::write_register_to(guard, register, [byte; 32])
     }
 
@@ -293,13 +250,15 @@ impl AtmoI2c {
     }
 
     fn write_ctrl_meas(&mut self) -> InternalResult<()> {
-        self.write_byte(Register::CtrlHum, self.overscan_humidity.into()).map_err(AtmoI2cInternalError::ControlMeasure)?;
+        self.write_byte(Register::CtrlHum, self.overscan_humidity.into())
+            .map_err(AtmoI2cInternalError::ControlMeasure)?;
         self.write_byte(
             Register::CtrlMeas,
             (u8::from(self.overscan_temperature) << 5)
                 + (u8::from(self.overscan_pressure) << 2)
                 + u8::from(self.mode),
-        ).map_err(AtmoI2cInternalError::ControlMeasure)?;
+        )
+        .map_err(AtmoI2cInternalError::ControlMeasure)?;
         Ok(())
     }
 
@@ -307,7 +266,7 @@ impl AtmoI2c {
         self.mode = mode;
         self.write_ctrl_meas().map_err(|e| match e {
             AtmoI2cInternalError::ControlMeasure(e) => AtmoI2cInternalError::Mode(e),
-            _ => panic!("should always be a control measure error")
+            _ => panic!("should always be a control measure error"),
         })
     }
 
@@ -323,7 +282,9 @@ impl AtmoI2c {
             } else {
                 0
             },
-        ).map_err(AtmoI2cInternalError::BaseError).map_err(AtmoI2cError::Config)?;
+        )
+        .map_err(AtmoI2cInternalError::BaseError)
+        .map_err(AtmoI2cError::Config)?;
         if normal {
             self.set_mode(Mode::Normal).map_err(AtmoI2cError::Config)?;
         }

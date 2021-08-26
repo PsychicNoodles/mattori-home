@@ -1,12 +1,12 @@
 use std::{array, sync::mpsc, thread::sleep, time::Duration};
 
-use thiserror::Error;
+use crate::I2cError;
 use rppal::i2c::I2c;
+use thiserror::Error;
 use tokio::{
     sync::watch,
     task::{spawn_blocking, JoinHandle},
 };
-use crate::I2cError;
 
 const LCD_SLAVE_ADDR: u16 = 0x3e;
 
@@ -18,7 +18,7 @@ enum LcdMessage {
     Stop,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum LcdError {
     #[error(transparent)]
     I2cError(#[from] I2cError),
@@ -32,6 +32,7 @@ pub enum LcdError {
 
 pub type Result<T> = std::result::Result<T, LcdError>;
 
+#[derive(Debug)]
 pub struct Lcd {
     col: u8,
     row: u8,
@@ -71,9 +72,7 @@ impl Lcd {
                         Err(e) => {
                             trace!("no message queued");
                             // notify if no message in queue
-                            if let Err(e) = processing_sender
-                                .send(false)
-                            {
+                            if let Err(e) = processing_sender.send(false) {
                                 error!("error in lcd messaging thread while trying to set processing status to false: {}", e);
                                 break;
                             }
@@ -92,18 +91,14 @@ impl Lcd {
                             }
                         }
                     };
-                    if let Err(e) = processing_sender
-                        .send(true)
-                    {
+                    if let Err(e) = processing_sender.send(true) {
                         error!("error in lcd messaging thread while trying to set processing status to false: {}", e);
                         break;
                     }
                     match next_msg {
                         LcdMessage::Char(c) => {
                             trace!("writing char {} to lcd", c);
-                            i2c.write(&[0x40, c])
-                                .map_err(|_| LcdError::Send)
-                                .unwrap();
+                            i2c.write(&[0x40, c]).map_err(|_| LcdError::Send).unwrap();
                         }
                         LcdMessage::Cmd(ctrl, data) => {
                             trace!("writing cmd {} with data {} to lcd", ctrl, data);
@@ -215,7 +210,9 @@ impl Lcd {
         self.write_sender
             .send(LcdMessage::Stop)
             .map_err(|_| LcdError::Send)?;
-        (&mut self.write_handle).await.map_err(|_| LcdError::ThreadWait)?;
+        (&mut self.write_handle)
+            .await
+            .map_err(|_| LcdError::ThreadWait)?;
         Ok(())
     }
 
@@ -225,7 +222,10 @@ impl Lcd {
 
     pub async fn wait_for_processing(&mut self) -> Result<()> {
         if self.is_write_processing() {
-            self.processing_receiver.changed().await.map_err(|_| LcdError::ProcessingWait)?;
+            self.processing_receiver
+                .changed()
+                .await
+                .map_err(|_| LcdError::ProcessingWait)?;
         }
         Ok(())
     }

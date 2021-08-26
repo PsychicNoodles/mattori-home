@@ -1,11 +1,12 @@
+use std::sync::{mpsc, Mutex};
+use std::thread::sleep;
+
+use thiserror::Error;
 use tokio::sync::watch;
+use tokio::task::spawn_blocking;
 use tokio::time::{Duration, Instant};
 
-use crate::atmosphere::types::{AtmoI2c, EnabledFeatures, AtmoI2cError};
-use std::sync::mpsc;
-use std::thread::sleep;
-use tokio::task::spawn_blocking;
-use thiserror::Error;
+use crate::atmosphere::types::{AtmoI2c, AtmoI2cError};
 
 mod calibration;
 mod commands;
@@ -35,28 +36,69 @@ impl Reading {
 }
 
 #[derive(Clone, Debug)]
+pub struct AtmosphereFeatures {
+    pub temperature: bool,
+    pub pressure: bool,
+    pub humidity: bool,
+    pub altitude: bool,
+}
+
+impl Default for AtmosphereFeatures {
+    fn default() -> Self {
+        Self {
+            temperature: true,
+            pressure: true,
+            humidity: true,
+            altitude: true,
+        }
+    }
+}
+
+impl AtmosphereFeatures {
+    pub fn temperature_enabled(&self) -> bool {
+        self.temperature || self.pressure_enabled() || self.humidity_enabled()
+    }
+
+    pub fn pressure_enabled(&self) -> bool {
+        self.pressure || self.altitude_enabled()
+    }
+
+    pub fn humidity_enabled(&self) -> bool {
+        self.humidity
+    }
+
+    pub fn altitude_enabled(&self) -> bool {
+        self.altitude
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum ReaderMessage {
     Start,
     Pause,
-    ChangeEnabled(EnabledFeatures),
+    // todo implement
+    ChangeEnabled(AtmosphereFeatures),
     Recalibrate,
     ChangeSeaLevelPressure(f32),
     Stop,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum AtmosphereError {
     #[error(transparent)]
     Internal(#[from] AtmoI2cError),
     #[error("Could not communicate with i2c thread")]
-    Send
+    Send,
+    #[error("Could not acquire message sender mutex")]
+    Mutex,
 }
 
 pub type Result<T> = std::result::Result<T, AtmosphereError>;
 
+#[derive(Debug)]
 pub struct Atmosphere {
     reading_receiver: watch::Receiver<Result<Reading>>,
-    message_sender: mpsc::Sender<ReaderMessage>,
+    message_sender: Mutex<mpsc::Sender<ReaderMessage>>,
 }
 
 impl Atmosphere {
@@ -67,7 +109,7 @@ impl Atmosphere {
 
         Ok(Atmosphere {
             reading_receiver,
-            message_sender,
+            message_sender: Mutex::new(message_sender),
         })
     }
 
@@ -82,7 +124,7 @@ impl Atmosphere {
         let (reading_sender, reading_receiver) = watch::channel(Ok(Reading::empty()));
 
         spawn_blocking(move || {
-            let mut features = EnabledFeatures::default();
+            let mut features = AtmosphereFeatures::default();
             let mut running = true;
             let mut next_tick = Instant::now() + READ_RATE;
             loop {
@@ -100,44 +142,52 @@ impl Atmosphere {
                     continue;
                 }
 
-                match message_receiver.try_recv() {
-                    Ok(ReaderMessage::Stop) => {
-                        info!("atmosphere thread received stop signal");
-                        break;
-                    }
-                    Err(mpsc::TryRecvError::Empty) => {
-                        // no new messages so skip
-                    }
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        info!("atmosphere stream message sender closed before stop signal");
-                        break;
-                    }
-                    Ok(ReaderMessage::Pause) => {
-                        info!("atmosphere thread pausing");
-                        running = false
-                    }
-                    Ok(ReaderMessage::ChangeEnabled(new_features)) => {
-                        info!(
-                            "atmosphere thread switching to new enabled features: {:?}",
-                            new_features
-                        );
-                        features = new_features
-                    }
-                    Ok(ReaderMessage::Start) => {
-                        info!("atmosphere thread starting");
-                        running = true
-                    }
-                    Ok(ReaderMessage::Recalibrate) => {
-                        info!("atmosphere thread recalibrating");
-                        if let Err(e) = atmo_i2c.reload_calibration() {
-                            if reading_sender.send(Err(AtmosphereError::Internal(e))).is_err() {
-                                error!("could not trigger recalibration in atmosphere i2c");
+                loop {
+                    match message_receiver.try_recv() {
+                        Ok(ReaderMessage::Stop) => {
+                            info!("atmosphere thread received stop signal");
+                            break;
+                        }
+                        Err(mpsc::TryRecvError::Empty) => {
+                            break;
+                        }
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            info!("atmosphere stream message sender closed before stop signal");
+                            return;
+                        }
+                        Ok(ReaderMessage::Pause) => {
+                            info!("atmosphere thread pausing");
+                            running = false
+                        }
+                        Ok(ReaderMessage::ChangeEnabled(new_features)) => {
+                            info!(
+                                "atmosphere thread switching to new enabled features: {:?}",
+                                new_features
+                            );
+                            features = new_features
+                        }
+                        Ok(ReaderMessage::Start) => {
+                            info!("atmosphere thread starting");
+                            running = true
+                        }
+                        Ok(ReaderMessage::Recalibrate) => {
+                            info!("atmosphere thread recalibrating");
+                            if let Err(e) = atmo_i2c.reload_calibration() {
+                                if reading_sender
+                                    .send(Err(AtmosphereError::Internal(e)))
+                                    .is_err()
+                                {
+                                    error!("could not trigger recalibration in atmosphere i2c");
+                                }
                             }
                         }
-                    }
-                    Ok(ReaderMessage::ChangeSeaLevelPressure(pressure)) => {
-                        info!("atmosphere thread changing sea level pressure to {}", pressure);
-                        atmo_i2c.set_sea_level_pressure( pressure);
+                        Ok(ReaderMessage::ChangeSeaLevelPressure(pressure)) => {
+                            info!(
+                                "atmosphere thread changing sea level pressure to {}",
+                                pressure
+                            );
+                            atmo_i2c.set_sea_level_pressure(pressure);
+                        }
                     }
                 }
 
@@ -155,29 +205,22 @@ impl Atmosphere {
     fn perform_reading(
         atmo_i2c: &mut AtmoI2c,
         running: bool,
-        features: &EnabledFeatures,
+        features: &AtmosphereFeatures,
     ) -> Result<Reading> {
         Ok(if running && features.temperature_enabled() {
             trace!("running && temperature enabled");
-            let (temp_fine, temperature) = atmo_i2c
-                .read_temperature()?;
+            let (temp_fine, temperature) = atmo_i2c.read_temperature()?;
             trace!("read temperature: {:?} {:?}", temp_fine, temperature);
 
             let pressure = features
                 .pressure_enabled()
-                .then(|| {
-                    atmo_i2c
-                        .read_pressure(temp_fine)
-                })
+                .then(|| atmo_i2c.read_pressure(temp_fine))
                 .transpose()?;
             trace!("read pressure: {:?}", pressure);
 
             let humidity = features
                 .humidity_enabled()
-                .then(|| {
-                    atmo_i2c
-                        .read_humidity(temp_fine)
-                })
+                .then(|| atmo_i2c.read_humidity(temp_fine))
                 .transpose()?;
             trace!("read humidity: {:?}", humidity);
 
@@ -206,30 +249,40 @@ impl Atmosphere {
 
     pub fn pause(&self) -> Result<()> {
         self.message_sender
+            .lock()
+            .map_err(|_| AtmosphereError::Mutex)?
             .send(ReaderMessage::Pause)
             .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn restart(&self) -> Result<()> {
         self.message_sender
+            .lock()
+            .map_err(|_| AtmosphereError::Mutex)?
             .send(ReaderMessage::Start)
             .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn stop(&self) -> Result<()> {
         self.message_sender
+            .lock()
+            .map_err(|_| AtmosphereError::Mutex)?
             .send(ReaderMessage::Stop)
             .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn recalibrate(&self) -> Result<()> {
         self.message_sender
+            .lock()
+            .map_err(|_| AtmosphereError::Mutex)?
             .send(ReaderMessage::Recalibrate)
             .map_err(|_| AtmosphereError::Send)
     }
 
     pub fn change_sea_level_pressure(&self, pressure: f32) -> Result<()> {
         self.message_sender
+            .lock()
+            .map_err(|_| AtmosphereError::Mutex)?
             .send(ReaderMessage::ChangeSeaLevelPressure(pressure))
             .map_err(|_| AtmosphereError::Send)
     }

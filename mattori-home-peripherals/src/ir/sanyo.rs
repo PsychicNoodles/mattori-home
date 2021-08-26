@@ -3,11 +3,11 @@ pub mod types;
 use thiserror::Error;
 
 use crate::ir::format::Aeha;
-use crate::ir::sanyo::types::{sanyo_sequence, SanyoMode, SanyoTemperatureCode, SanyoTrigger};
-use crate::ir::types::{IrEncodeError, IrFormat, IrSequence, IrTarget};
+use crate::ir::sanyo::types::{sanyo_sequence, SanyoTemperatureCode, SanyoTrigger};
+use crate::ir::types::{ACMode, IrEncodeError, IrFormat, IrSequence, IrStatus, IrTarget};
 use std::cmp::Ordering;
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum SanyoError {
     #[error("Temperature out of range")]
     TemperatureRange,
@@ -20,7 +20,7 @@ pub enum SanyoError {
 #[derive(Debug, Default)]
 pub struct Sanyo {
     powered: bool,
-    mode: SanyoMode,
+    mode: ACMode,
     temp: SanyoTemperatureCode,
 }
 
@@ -41,7 +41,6 @@ impl IrTarget for Sanyo {
     type Format = Aeha;
     type Error = SanyoError;
     type Temperature = SanyoTemperatureCode;
-    type Mode = SanyoMode;
     const SEQ_LENGTH: usize = 136;
 
     fn power_off(&mut self) -> Result<IrSequence, Self::Error> {
@@ -72,9 +71,17 @@ impl IrTarget for Sanyo {
         self.as_ir_sequence(trigger)
     }
 
-    fn mode_set(&mut self, mode: Self::Mode) -> Result<IrSequence, Self::Error> {
+    fn mode_set(&mut self, mode: ACMode) -> Result<IrSequence, Self::Error> {
         self.mode = mode;
         // TODO fix
         self.as_ir_sequence(SanyoTrigger::On)
+    }
+
+    fn status(&self) -> IrStatus<Self> {
+        IrStatus {
+            powered: self.powered,
+            mode: self.mode.clone(),
+            temperature: self.temp.clone(),
+        }
     }
 }

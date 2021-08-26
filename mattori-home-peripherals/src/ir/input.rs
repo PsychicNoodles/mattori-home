@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 use async_stream::{stream, try_stream};
 use rppal::gpio::{Gpio, InputPin, Trigger};
+use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{mpsc, Notify};
 use tokio::time::sleep;
@@ -12,10 +13,9 @@ use tokio::{
     task::{spawn, JoinHandle},
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
-use thiserror::Error;
 
 use crate::ir::types::{IrPulse, IrSequence};
-use crate::I2cError;
+use crate::{I2cError, RppalError};
 
 const IR_INPUT_PIN: u8 = 4;
 
@@ -25,6 +25,7 @@ const WAIT_TIMEOUT: Duration = Duration::from_millis(1000);
 const DEBOUNCE: Duration = Duration::from_micros(100);
 const MAX_PULSE: Duration = Duration::from_millis(10);
 
+#[derive(Debug)]
 pub struct IrIn {
     read_handle: JoinHandle<()>,
     read_stop_sender: watch::Sender<bool>,
@@ -38,7 +39,7 @@ enum IrInterruptMessage {
     Timeout,
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Clone, Debug)]
 pub enum IrInError {
     #[error(transparent)]
     I2cError(#[from] I2cError),
@@ -51,7 +52,7 @@ pub enum IrInError {
     #[error("Could not get next pulse")]
     PulseReceive,
     #[error("Could not set up ir interrupt handler")]
-    IrInterrupt(#[from] rppal::gpio::Error)
+    IrInterrupt(#[from] RppalError),
 }
 
 pub type Result<T> = std::result::Result<T, IrInError>;
@@ -187,6 +188,7 @@ impl IrIn {
                 init = false;
             }
         })
+        .map_err(RppalError::from)
         .map_err(IrInError::IrInterrupt)?;
         Ok(timeout_handle)
     }
@@ -256,15 +258,11 @@ impl IrIn {
     }
 
     pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<IrPulseSequence>>> {
-        self.pulses
-            .read()
-            .map_err(|_| IrInError::PulsesLock)
+        self.pulses.read().map_err(|_| IrInError::PulsesLock)
     }
 
     pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<IrPulseSequence>>> {
-        self.pulses
-            .write()
-            .map_err(|_| IrInError::PulsesLock)
+        self.pulses.write().map_err(|_| IrInError::PulsesLock)
     }
 
     pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<IrPulseSequence>>> {

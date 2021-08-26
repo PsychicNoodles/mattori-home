@@ -5,37 +5,8 @@ use thiserror::Error;
 use tokio::sync::OnceCell;
 
 use crate::ir::types::{ACMode, IrPulse, IrPulseBytes, TemperatureCode};
+use core::convert;
 use std::array::IntoIter;
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub enum SanyoMode {
-    Cool,
-}
-
-impl Default for SanyoMode {
-    fn default() -> Self {
-        SanyoMode::Cool
-    }
-}
-
-impl ACMode for SanyoMode {}
-
-#[derive(Error, Debug)]
-#[error("Invalid mode: {input}")]
-pub struct InvalidSanyoMode {
-    input: String,
-}
-
-impl TryFrom<String> for SanyoMode {
-    type Error = InvalidSanyoMode;
-
-    fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        match value.to_lowercase().as_str() {
-            "cool" => Ok(SanyoMode::Cool),
-            _ => Err(InvalidSanyoMode { input: value }),
-        }
-    }
-}
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
 pub enum SanyoTemperatureCode {
@@ -71,34 +42,45 @@ impl Default for SanyoTemperatureCode {
 impl TemperatureCode for SanyoTemperatureCode {}
 
 #[derive(Error, Debug)]
-#[error("Invalid termpature code: {input}")]
-pub struct InvalidSanyoTemperatureCode {
-    input: String,
+#[error("Invalid temperature code")]
+pub struct InvalidSanyoTemperatureCode;
+
+impl TryFrom<u32> for SanyoTemperatureCode {
+    type Error = InvalidSanyoTemperatureCode;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        use SanyoTemperatureCode::*;
+        match value {
+            16 => Ok(T16),
+            17 => Ok(T17),
+            18 => Ok(T18),
+            19 => Ok(T19),
+            20 => Ok(T20),
+            21 => Ok(T21),
+            22 => Ok(T22),
+            23 => Ok(T23),
+            24 => Ok(T24),
+            25 => Ok(T25),
+            26 => Ok(T26),
+            27 => Ok(T27),
+            28 => Ok(T28),
+            29 => Ok(T29),
+            30 => Ok(T30),
+            _ => Err(InvalidSanyoTemperatureCode),
+        }
+    }
 }
 
 impl TryFrom<String> for SanyoTemperatureCode {
     type Error = InvalidSanyoTemperatureCode;
 
     fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
-        use SanyoTemperatureCode::*;
-        match value.to_lowercase().as_str() {
-            "16" => Ok(T16),
-            "17" => Ok(T17),
-            "18" => Ok(T18),
-            "19" => Ok(T19),
-            "20" => Ok(T20),
-            "21" => Ok(T21),
-            "22" => Ok(T22),
-            "23" => Ok(T23),
-            "24" => Ok(T24),
-            "25" => Ok(T25),
-            "26" => Ok(T26),
-            "27" => Ok(T27),
-            "28" => Ok(T28),
-            "29" => Ok(T29),
-            "30" => Ok(T30),
-            _ => Err(InvalidSanyoTemperatureCode { input: value }),
-        }
+        value
+            .to_lowercase()
+            .parse::<u32>()
+            .map_err(|_| InvalidSanyoTemperatureCode)
+            .map(SanyoTemperatureCode::try_from)
+            .and_then(convert::identity)
     }
 }
 
@@ -121,6 +103,12 @@ impl From<&SanyoTemperatureCode> for u8 {
             SanyoTemperatureCode::T29 => 29,
             SanyoTemperatureCode::T30 => 30,
         }
+    }
+}
+
+impl From<SanyoTemperatureCode> for u32 {
+    fn from(code: SanyoTemperatureCode) -> Self {
+        u8::from(&code) as u32
     }
 }
 
@@ -250,13 +238,14 @@ fn build_sequence(byte5: u8, byte6: u8, byte8: u8, byte16: u8) -> Vec<u8> {
 
 #[cached]
 pub fn sanyo_sequence(
-    mode: SanyoMode,
+    mode: ACMode,
     temperature: SanyoTemperatureCode,
     trigger: SanyoTrigger,
 ) -> IrPulseBytes {
     // todo determine how mode affects values
     let _ = match mode {
-        SanyoMode::Cool => (),
+        ACMode::Cool => (),
+        _ => (),
     };
     IrPulseBytes(build_sequence(
         match trigger {
