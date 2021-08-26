@@ -39,6 +39,10 @@ impl IrSequence {
     pub fn into_inner(self) -> Vec<IrPulse> {
         self.0
     }
+
+    pub fn as_hex<T: IrFormat>(&self) -> Result<String, IrDecodeError> {
+        T::decode(self).map(|bytes| bytes.to_string())
+    }
 }
 
 impl AsRef<[IrPulse]> for IrSequence {

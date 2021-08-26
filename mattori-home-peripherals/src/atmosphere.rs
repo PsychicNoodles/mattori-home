@@ -7,6 +7,7 @@ use tokio::task::spawn_blocking;
 use tokio::time::{Duration, Instant};
 
 use crate::atmosphere::types::{AtmoI2c, AtmoI2cError};
+use std::fmt::{Display, Formatter};
 
 mod calibration;
 mod commands;
@@ -22,6 +23,51 @@ pub struct Reading {
     pub pressure: Option<f32>,
     pub humidity: Option<f32>,
     pub altitude: Option<f32>,
+}
+
+impl Display for Reading {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let any = [
+            self.temperature,
+            self.pressure,
+            self.humidity,
+            self.altitude,
+        ]
+        .iter()
+        .any(Option::is_some);
+        if any {
+            write!(f, "{{ ")?;
+        }
+        let mut has_prev = false;
+        if let Some(t) = self.temperature {
+            write!(f, "temperature: {}", t)?;
+            has_prev = true;
+        }
+        if let Some(p) = self.pressure {
+            if has_prev {
+                write!(f, ", ")?;
+            }
+            write!(f, "pressure: {}", p)?;
+            has_prev = true;
+        }
+        if let Some(h) = self.humidity {
+            if has_prev {
+                write!(f, ", ")?;
+            }
+            write!(f, "humidity: {}", h)?;
+            has_prev = true;
+        }
+        if let Some(a) = self.altitude {
+            if has_prev {
+                write!(f, ", ")?;
+            }
+            write!(f, "altitude: {}", a)?;
+        }
+        if any {
+            write!(f, " }}")?;
+        }
+        Ok(())
+    }
 }
 
 impl Reading {

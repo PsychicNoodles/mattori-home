@@ -2,10 +2,13 @@ mod conversions;
 mod server;
 
 extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
 
 use crate::server::{mattori_home::home_server::HomeServer, HomeImpl};
 use color_eyre::eyre::WrapErr;
 use mattori_home_peripherals::atmosphere::Atmosphere;
+use mattori_home_peripherals::ir::format::Aeha;
 use mattori_home_peripherals::ir::input::IrIn;
 use mattori_home_peripherals::ir::output::IrOut;
 use mattori_home_peripherals::ir::sanyo::types::SanyoTemperatureCode;
@@ -118,6 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let opts = Opt::from_args();
 
+    debug!("opts: {:?}", opts);
+
     match opts {
         Opt::Ir(ir_opts) => match ir_opts {
             IrOpt::Receive { resend } => {
@@ -126,14 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pin!(ir_stream);
                 let pulse_seq = ir_stream.next().await.unwrap().unwrap().unwrap();
                 ir_in.stop().await?;
-                println!(
-                    "pulse sequence: {:?}",
-                    pulse_seq
-                        .0
-                        .iter()
-                        .map(|p| p.into_inner())
-                        .collect::<Vec<_>>()
-                );
+                println!("Received pulse sequence: {}", pulse_seq.as_hex::<Aeha>()?);
 
                 if let Some(re) = resend {
                     sleep(Duration::from_secs(re as u64));
@@ -167,21 +165,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for _ in 0..times {
                 atmo_receiver.changed().await?;
                 let reading = atmo_receiver.borrow();
-                println!("atmosphere reading: {:?}", reading);
+                println!("Atmosphere reading: {}", reading.clone()?);
             }
             atmo.stop()?;
         }
         Opt::Led { led, duration } => {
             let mut led = Led::from_led(led)?;
+            println!("Turning on led...");
             led.on();
             sleep(Duration::from_secs(duration));
             led.off();
+            println!("Turned off led");
         }
         Opt::Lcd { text, duration } => {
             let mut lcd = Lcd::default_addr()?;
+            println!("Displaying text: {}", text);
             lcd.push_str(&text)?;
             lcd.wait_for_processing().await?;
             sleep(Duration::from_secs(duration));
+            println!("Clearing lcd");
             lcd.shutdown().await?;
         }
         Opt::Server {

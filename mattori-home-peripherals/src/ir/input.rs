@@ -19,8 +19,6 @@ use crate::{I2cError, RppalError};
 
 const IR_INPUT_PIN: u8 = 4;
 
-pub type IrPulseSequence = Arc<IrSequence>;
-
 const WAIT_TIMEOUT: Duration = Duration::from_millis(1000);
 const DEBOUNCE: Duration = Duration::from_micros(100);
 const MAX_PULSE: Duration = Duration::from_millis(10);
@@ -29,8 +27,8 @@ const MAX_PULSE: Duration = Duration::from_millis(10);
 pub struct IrIn {
     read_handle: JoinHandle<()>,
     read_stop_sender: watch::Sender<bool>,
-    pulses: Arc<RwLock<Vec<IrPulseSequence>>>,
-    pulse_added_receiver: watch::Receiver<Option<IrPulseSequence>>,
+    pulses: Arc<RwLock<Vec<Arc<IrSequence>>>>,
+    pulse_added_receiver: watch::Receiver<Option<Arc<IrSequence>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -257,15 +255,15 @@ impl IrIn {
             .map_err(|_| IrInError::ThreadWait)
     }
 
-    pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<IrPulseSequence>>> {
+    pub fn pulses(&self) -> Result<RwLockReadGuard<Vec<Arc<IrSequence>>>> {
         self.pulses.read().map_err(|_| IrInError::PulsesLock)
     }
 
-    pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<IrPulseSequence>>> {
+    pub fn pulses_mut(&mut self) -> Result<RwLockWriteGuard<Vec<Arc<IrSequence>>>> {
         self.pulses.write().map_err(|_| IrInError::PulsesLock)
     }
 
-    pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<IrPulseSequence>>> {
+    pub fn pulse_stream(&self) -> impl Stream<Item = Result<Option<Arc<IrSequence>>>> {
         let mut receiver = self.pulse_added_receiver.clone();
         try_stream! {
             loop {
