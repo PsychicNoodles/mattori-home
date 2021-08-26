@@ -11,6 +11,8 @@ use mattori_home::{AcStatus, AcStatusParam, AtmosphereReading};
 use mattori_home_peripherals::atmosphere::Atmosphere;
 use mattori_home_peripherals::ir::output::IrOut;
 use mattori_home_peripherals::ir::types::{ACMode, IrStatus, IrTarget};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 pub mod mattori_home {
     tonic::include_proto!("mattori_home");
@@ -39,15 +41,22 @@ where
         request: tonic::Request<tonic::Streaming<mattori_home::AtmosphereFeatures>>,
     ) -> Result<tonic::Response<Self::ReadAtmosphereStream>, tonic::Status> {
         let mut feature_stream = request.into_inner();
-        let reading_stream = WatchStream::new(self.atmosphere.subscribe()).map(|res| {
-            res.map(mattori_home::AtmosphereReading::from)
-                .map_err(|e| tonic::Status::internal(e.to_string()))
-        });
+        let running = Arc::new(AtomicBool::new(true));
+        let reading_stream = {
+            let running = running.clone();
+            WatchStream::new(self.atmosphere.subscribe())
+                .map(|res| {
+                    res.map(mattori_home::AtmosphereReading::from)
+                        .map_err(|e| tonic::Status::internal(e.to_string()))
+                })
+                .take_while(move |_| running.load(Ordering::Acquire))
+        };
 
         tokio::spawn(async move {
             while let Some(_) = feature_stream.next().await {
                 // todo implement
             }
+            running.store(false, Ordering::Release);
         });
 
         Ok(tonic::Response::new(
