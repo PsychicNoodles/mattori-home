@@ -184,7 +184,7 @@ impl Atmosphere {
                 next_tick += READ_RATE;
 
                 if reading_sender.receiver_count() <= 1 {
-                    debug!("skipping due to no reading receivers");
+                    trace!("skipping due to no reading receivers");
                     continue;
                 }
 

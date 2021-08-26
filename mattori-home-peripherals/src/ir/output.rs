@@ -90,7 +90,7 @@ where
                                     acc
                                 },
                             );
-                            debug!("queuing sequence: {:?}", pwm_sequence);
+                            trace!("queuing sequence: {:?}", pwm_sequence);
                             if let Err(e) = o.set_pwm_sequence(pwm_sequence, false) {
                                 error!("Could not set up pwm for ir output: {:?}", e);
                             }
