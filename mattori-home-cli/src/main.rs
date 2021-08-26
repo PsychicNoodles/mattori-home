@@ -38,6 +38,7 @@ enum SendIrOpt {
         #[structopt(parse(try_from_str = parse_encoded))]
         hex: Vec<u128>,
     },
+    Registered(AcState),
 }
 
 #[derive(StructOpt, Debug)]
@@ -58,6 +59,21 @@ struct AcState {
     mode: ACMode,
     #[structopt(short, long, default_value = "25")]
     temperature: SanyoTemperatureCode,
+}
+
+impl AcState {
+    fn send(
+        &self,
+        target: &mut Sanyo,
+    ) -> std::result::Result<IrSequence, <Sanyo as IrTarget>::Error> {
+        target.mode_set(self.mode.clone())?;
+        target.temp_set(self.temperature.clone())?;
+        if self.unpowered {
+            target.power_off()
+        } else {
+            target.power_on()
+        }
+    }
 }
 
 #[derive(StructOpt, Debug)]
@@ -128,25 +144,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     ir_out.stop()?;
                 }
             }
-            IrOpt::Send(send_opts) => match send_opts {
-                SendIrOpt::Raw { bytes } => {
-                    let mut ir_out = IrOut::default_pin(Sanyo::default())?;
-                    ir_out.send(
+            IrOpt::Send(send_opts) => {
+                let mut ir_out = IrOut::default_pin(Sanyo::default())?;
+                match send_opts {
+                    SendIrOpt::Raw { bytes } => ir_out.send(
                         <Sanyo as IrTarget>::Format::encode(bytes)
                             .wrap_err("Could not encode bytes")?,
-                    )?;
-                    sleep(Duration::from_secs(1));
-                    println!("Finished sending!");
-                    ir_out.stop()?;
+                    )?,
+                    SendIrOpt::Encoded { hex } => {
+                        ir_out.send(IrSequence(hex.into_iter().map(IrPulse).collect()))?
+                    }
+                    SendIrOpt::Registered(state) => ir_out.send_target(|o| state.send(o))?,
                 }
-                SendIrOpt::Encoded { hex } => {
-                    let mut ir_out = IrOut::default_pin(Sanyo::default())?;
-                    ir_out.send(IrSequence(hex.into_iter().map(IrPulse).collect()))?;
-                    sleep(Duration::from_secs(1));
-                    println!("Finished sending!");
-                    ir_out.stop()?;
-                }
-            },
+                sleep(Duration::from_secs(1));
+                println!("Finished sending!");
+                ir_out.stop()?;
+            }
         },
         Opt::Atmosphere { times } => {
             let atmo = Atmosphere::default_addr()?;
@@ -176,15 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             initial_state,
         } => {
             let mut out = IrOut::default_pin(Sanyo::default())?;
-            out.send_target(|target| {
-                target.mode_set(initial_state.mode)?;
-                target.temp_set(initial_state.temperature)?;
-                if initial_state.unpowered {
-                    target.power_off()
-                } else {
-                    target.power_on()
-                }
-            })?;
+            out.send_target(|o| initial_state.send(o))?;
             let home = HomeImpl {
                 atmosphere: Atmosphere::default_addr()?,
                 ir_out: Mutex::new(out),
