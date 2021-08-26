@@ -53,7 +53,7 @@ where
         };
 
         tokio::spawn(async move {
-            while let Some(_) = feature_stream.next().await {
+            while let Some(Ok(_)) = feature_stream.next().await {
                 // todo implement
             }
             running.store(false, Ordering::Release);
