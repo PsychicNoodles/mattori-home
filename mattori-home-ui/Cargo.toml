@@ -18,5 +18,8 @@ console_log = "0.2"
 tonic = "0.5"
 prost = "0.8"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["rt"] }
+
 [build-dependencies]
 tonic-build = "0.5"

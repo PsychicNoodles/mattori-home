@@ -13,10 +13,16 @@ pub mod mattori_home {
     tonic::include_proto!("mattori_home");
 }
 
+pub enum ClientMessage {
+    ChangeAtmosphereFeatures(AtmosphereFeatures),
+    GetAcStatus,
+    SetAcStatus(AcStatus),
+    Stop,
+}
+
 pub struct Client {
     client: HomeClient<Channel>,
     atmo_features: Arc<Mutex<AtmosphereFeatures>>,
-    reading_stream: Option<Streaming<AtmosphereReading>>,
 }
 
 impl Client {
@@ -29,7 +35,6 @@ impl Client {
                 humidity: true,
                 altitude: true,
             })),
-            reading_stream: None,
         })
     }
 
@@ -72,13 +77,15 @@ impl Client {
             .map(|g| g.clone())
     }
 
-    pub async fn read_atmosphere(&mut self) -> Result<&Streaming<AtmosphereReading>> {
-        // can't return borrow and then assign to self.reading_stream, so have to do this juggling
-        if let Some(stream) = self.reading_stream.take() {
-            self.reading_stream = Some(stream);
-            return Ok(self.reading_stream.as_ref().unwrap());
-        }
+    pub fn set_atmosphere_features(&mut self, features: AtmosphereFeatures) -> Result<()> {
+        *self
+            .atmo_features
+            .lock()
+            .map_err(|_| eyre!("Could not lock atmosphere features mutex"))? = features;
+        Ok(())
+    }
 
+    pub async fn start_read_atmosphere(&mut self) -> Result<Streaming<AtmosphereReading>> {
         let outbound = {
             let features = self.atmo_features.clone();
             futures_util::stream::repeat_with(move || {
@@ -97,8 +104,7 @@ impl Client {
             .await
             .wrap_err("Could not receive atmosphere reading from server")?
             .into_inner();
-        self.reading_stream = Some(stream);
-        Ok(self.reading_stream.as_ref().unwrap())
+        Ok(stream)
     }
 
     pub async fn get_ac_status(&mut self) -> Result<AcStatus> {

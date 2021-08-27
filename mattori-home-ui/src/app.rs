@@ -1,22 +1,28 @@
+use crate::client::mattori_home::{AcStatus, AtmosphereReading};
+use crate::client::ClientMessage;
 use eframe::{egui, epi};
+use std::sync::mpsc;
 
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(default)] // if we add new fields, give them default values when deserializing old state
 pub struct HomeApp {
-    // Example stuff:
-    label: String,
-
-    // this how you opt-out of serialization of a member
-    #[serde(skip)]
-    value: f32,
+    atmo_receiver: mpsc::Receiver<AtmosphereReading>,
+    latest_atmo: Option<AtmosphereReading>,
+    ac_status_receiver: mpsc::Receiver<AcStatus>,
+    latest_ac_status: Option<AcStatus>,
+    client_message_sender: mpsc::Sender<ClientMessage>,
 }
 
-impl Default for HomeApp {
-    fn default() -> Self {
-        Self {
-            // Example stuff:
-            label: "Hello World!".to_owned(),
-            value: 2.7,
+impl HomeApp {
+    pub fn new(
+        atmo_receiver: mpsc::Receiver<AtmosphereReading>,
+        ac_status_receiver: mpsc::Receiver<AcStatus>,
+        client_message_sender: mpsc::Sender<ClientMessage>,
+    ) -> HomeApp {
+        HomeApp {
+            atmo_receiver,
+            latest_atmo: None,
+            ac_status_receiver,
+            latest_ac_status: None,
+            client_message_sender,
         }
     }
 }
@@ -25,15 +31,22 @@ impl epi::App for HomeApp {
     /// Called each time the UI needs repainting, which may be many times per second.
     /// Put your widgets into a `SidePanel`, `TopPanel`, `CentralPanel`, `Window` or `Area`.
     fn update(&mut self, ctx: &egui::CtxRef, frame: &mut epi::Frame<'_>) {
-        let Self { label, value } = self;
+        let Self {
+            atmo_receiver,
+            latest_atmo,
+            ac_status_receiver,
+            latest_ac_status,
+            client_message_sender,
+        } = self;
 
-        // Examples of how to create different panels and windows.
-        // Pick whichever suits you.
-        // Tip: a good default choice is to just keep the `CentralPanel`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
+        if let Ok(atmo) = atmo_receiver.try_recv() {
+            let _ = latest_atmo.insert(atmo);
+        }
+        if let Ok(ac) = ac_status_receiver.try_recv() {
+            let _ = latest_ac_status.insert(ac);
+        }
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
             egui::menu::bar(ui, |ui| {
                 egui::menu::menu(ui, "File", |ui| {
                     if ui.button("Quit").clicked() {
@@ -43,29 +56,7 @@ impl epi::App for HomeApp {
             });
         });
 
-        egui::SidePanel::left("side_panel").show(ctx, |ui| {
-            ui.heading("Side Panel");
-
-            ui.horizontal(|ui| {
-                ui.label("Write something: ");
-                ui.text_edit_singleline(label);
-            });
-
-            ui.add(egui::Slider::new(value, 0.0..=10.0).text("value"));
-            if ui.button("Increment").clicked() {
-                *value += 1.0;
-            }
-
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
-                ui.add(
-                    egui::Hyperlink::new("https://github.com/emilk/egui/").text("powered by egui"),
-                );
-            });
-        });
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
-
             ui.heading("egui template");
             ui.hyperlink("https://github.com/emilk/egui_template");
             ui.add(egui::github_link_file!(
@@ -85,22 +76,22 @@ impl epi::App for HomeApp {
         }
     }
 
-    /// Called by the framework to load old app state (if any).
-    fn setup(
-        &mut self,
-        _ctx: &egui::CtxRef,
-        _frame: &mut epi::Frame<'_>,
-        storage: Option<&dyn epi::Storage>,
-    ) {
-        if let Some(storage) = storage {
-            *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
-        }
-    }
-
-    /// Called by the frame work to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn epi::Storage) {
-        epi::set_value(storage, epi::APP_KEY, self);
-    }
+    // /// Called by the framework to load old app state (if any).
+    // fn setup(
+    //     &mut self,
+    //     _ctx: &egui::CtxRef,
+    //     _frame: &mut epi::Frame<'_>,
+    //     storage: Option<&dyn epi::Storage>,
+    // ) {
+    //     if let Some(storage) = storage {
+    //         *self = epi::get_value(storage, epi::APP_KEY).unwrap_or_default()
+    //     }
+    // }
+    //
+    // /// Called by the frame work to save state before shutdown.
+    // fn save(&mut self, storage: &mut dyn epi::Storage) {
+    //     epi::set_value(storage, epi::APP_KEY, self);
+    // }
 
     fn name(&self) -> &str {
         "egui template"

@@ -6,7 +6,7 @@
 extern crate log;
 
 mod app;
-mod client;
+pub mod client;
 
 pub use app::HomeApp;
 
@@ -23,6 +23,8 @@ use eframe::wasm_bindgen::{self, prelude::*};
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub fn start(canvas_id: &str) -> Result<(), eframe::wasm_bindgen::JsValue> {
+    color_eyre::install()?;
+
     let app = HomeApp::default();
     eframe::start_web(canvas_id, Box::new(app))
 }
