@@ -2,7 +2,12 @@
 #![cfg_attr(not(debug_assertions), deny(warnings))] // Forbid warnings in release builds
 #![warn(clippy::all, rust_2018_idioms)]
 
+#[macro_use]
+extern crate log;
+
 mod app;
+mod client;
+
 pub use app::HomeApp;
 
 // ----------------------------------------------------------------------------
