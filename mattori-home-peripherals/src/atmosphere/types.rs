@@ -1,4 +1,3 @@
-use std::array::IntoIter;
 use std::sync::{Mutex, MutexGuard};
 
 use rppal::i2c::I2c;
@@ -217,7 +216,7 @@ impl AtmoI2c {
 
     pub fn read24(&self, register: Register) -> BaseResult<f32> {
         Self::read_register_from(&self.lock_i2c()?, register, |buf| {
-            IntoIter::new(buf)
+            IntoIterator::into_iter(buf)
                 .take(3)
                 .fold(0.0, |acc, b| (acc * 256.0) + b as f32)
         })

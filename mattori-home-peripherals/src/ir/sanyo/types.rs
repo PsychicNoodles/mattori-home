@@ -6,7 +6,6 @@ use tokio::sync::OnceCell;
 
 use crate::ir::types::{ACMode, IrPulse, IrPulseBytes, TemperatureCode};
 use core::convert;
-use std::array::IntoIter;
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
@@ -228,7 +227,7 @@ fn build_sequence(byte5: u8, byte6: u8, byte8: u8, byte16: u8) -> Vec<u8> {
     seq[16]
         .set(byte16)
         .expect("Whoopsie setting up Sanyo sequence! Tried setting an already set byte!");
-    IntoIter::new(seq)
+    IntoIterator::into_iter(seq)
         .map(|oc| {
             oc.into_inner()
                 .expect("Whoospie setting up Sanyo sequence! Not all the bytes were set!")

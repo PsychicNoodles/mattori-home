@@ -1,4 +1,4 @@
-use std::{array, sync::mpsc, thread::sleep, time::Duration};
+use std::{sync::mpsc, thread::sleep, time::Duration};
 
 use crate::I2cError;
 use rppal::i2c::I2c;
@@ -136,7 +136,7 @@ impl Lcd {
 
     pub fn init(&mut self) -> Result<()> {
         trace!("initializing lcd");
-        array::IntoIter::new(Lcd::INIT_SEQ)
+        IntoIterator::into_iter(Lcd::INIT_SEQ)
             .try_for_each(|msg| self.write_sender.send(msg))
             .map_err(|_| LcdError::Send)?;
         Ok(())

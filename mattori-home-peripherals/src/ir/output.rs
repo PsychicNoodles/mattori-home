@@ -9,7 +9,6 @@ use tokio::task::spawn_blocking;
 use crate::ir::types::{IrSequence, IrStatus, IrTarget};
 use crate::I2cError;
 use core::iter;
-use std::array::IntoIter;
 use std::convert::TryFrom;
 use std::fmt::{Debug, Display};
 
@@ -150,7 +149,7 @@ where
             temperature,
         }: IrStatus<T>,
     ) -> Result<(), T> {
-        let results = IntoIter::new([
+        let results = IntoIterator::into_iter([
             Some(self.target.mode_set(mode)),
             self.target.temp_set(temperature),
             (powered != self.target.is_powered()).then(|| {
