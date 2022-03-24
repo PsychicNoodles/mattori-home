@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 
 use cached::proc_macro::cached;
+use strum_macros::EnumIter;
 use thiserror::Error;
 use tokio::sync::OnceCell;
 
@@ -8,7 +9,7 @@ use crate::ir::types::{ACMode, IrPulse, IrPulseBytes, TemperatureCode};
 use core::convert;
 use std::str::FromStr;
 
-#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, Ord, PartialOrd, EnumIter)]
 pub enum SanyoTemperatureCode {
     T16,
     T17,

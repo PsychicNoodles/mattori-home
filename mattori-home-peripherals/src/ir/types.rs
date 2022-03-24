@@ -3,6 +3,7 @@ use num_traits::AsPrimitive;
 use std::convert::TryFrom;
 use std::fmt::Display;
 use std::str::FromStr;
+use strum_macros::EnumIter;
 use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq, Hash)]
@@ -71,7 +72,7 @@ where
 {
 }
 
-#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Ord, PartialOrd, Eq, PartialEq, Hash, EnumIter)]
 pub enum ACMode {
     Auto,
     Warm,
@@ -102,6 +103,19 @@ impl FromStr for ACMode {
             "fan" => Ok(ACMode::Fan),
             _ => Err(InvalidAcMode),
         }
+    }
+}
+
+impl ToString for ACMode {
+    fn to_string(&self) -> String {
+        match self {
+            ACMode::Auto => "auto",
+            ACMode::Warm => "warm",
+            ACMode::Dry => "dry",
+            ACMode::Cool => "cool",
+            ACMode::Fan => "fan",
+        }
+        .to_string()
     }
 }
 

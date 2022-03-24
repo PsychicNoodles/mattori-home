@@ -4,4 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serenity = "0.10"
+mattori-home-peripherals = { version = "0.1", path = "../mattori-home-peripherals" }
+serenity = { version = "0.10", default-features = false, features = [
+  "builder",
+  "collector",
+  "client",
+  "framework",
+  "model",
+  "standard_framework",
+  "utils",
+  "rustls_backend",
+  "unstable_discord_api",
+] }
+tokio = { version = "1", features = ["rt", "macros", "sync"] }
+pretty_env_logger = "0.4.0"
+log = "0.4"
+thiserror = "1.0"
+strum = "0.24"
