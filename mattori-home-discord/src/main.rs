@@ -1,9 +1,8 @@
-use std::{str::FromStr, sync::Arc};
+mod commands;
 
-use mattori_home_peripherals::{
-    atmosphere::{Atmosphere, Reading},
-    ir::{sanyo::types::SanyoTemperatureCode, types::ACMode},
-};
+use std::{str::FromStr, time::Duration};
+
+use mattori_home_peripherals::atmosphere::{Atmosphere, Reading};
 use serenity::{
     async_trait,
     builder::{CreateActionRow, CreateMessage, CreateSelectMenu},
@@ -19,9 +18,13 @@ use tokio::{
     sync::{broadcast, mpsc},
 };
 
+use crate::commands::Commands;
+
 extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
+
+const INTERACTION_TIMEOUT: Duration = Duration::from_secs(60 * 3);
 
 async fn ir_read_loop(
     cmd_tx: mpsc::UnboundedSender<Reading>,
@@ -70,41 +73,6 @@ async fn ir_read_loop(
     }
 }
 
-#[derive(Debug)]
-enum Commands {
-    Atmosphere,
-    PowerOn,
-    PowerOff,
-}
-
-impl Commands {
-    fn message(self, m: &mut CreateMessage) {
-        match self {
-            Commands::Atmosphere => todo!(),
-            Commands::PowerOn => todo!(),
-            Commands::PowerOff => todo!(),
-        }
-    }
-}
-
-#[derive(Error, Debug)]
-#[error("Failed to parse {0} as command")]
-struct CommandParseError(String);
-
-impl FromStr for Commands {
-    type Err = CommandParseError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use Commands::*;
-        match s {
-            "atmosphere" | "atmo" => Ok(Atmosphere),
-            "poweron" | "on" => Ok(PowerOn),
-            "poweroff" | "off" => Ok(PowerOff),
-            _ => Err(CommandParseError(s.to_string())),
-        }
-    }
-}
-
 struct Handler;
 
 #[async_trait]
@@ -112,54 +80,29 @@ impl EventHandler for Handler {
     async fn message(&self, ctx: Context, msg: Message) {
         trace!("message: {:?}", msg);
 
-        match Commands::from_str(&msg.content) {
-            Ok(c) => match c {
-                Commands::Atmosphere => {
-                    let m = msg
-                        .channel_id
-                        .send_message(&ctx, |m| {
-                            m.content("Choose a mode and temperature");
-                            let mut ar = CreateActionRow::default();
-                            let mut mode_sm = CreateSelectMenu::default();
-                            mode_sm.placeholder("Mode");
-                            mode_sm.options(|opts| {
-                                ACMode::iter().for_each(|mode| {
-                                    opts.create_option(|o| {
-                                        o.label(mode.to_string());
-                                        o.value(mode.to_string());
-                                        o
-                                    });
-                                });
-                                opts
-                            });
-                            ar.add_select_menu(mode_sm);
-                            let mut temp_sm = CreateSelectMenu::default();
-                            temp_sm.placeholder("Temperature");
-                            temp_sm.options(|opts| {
-                                SanyoTemperatureCode::iter().for_each(|temp| {
-                                    opts.create_option(|o| {
-                                        let t = u32::from(temp).to_string();
-                                        o.label(format!("{}°", t));
-                                        o.label(t);
-                                        o
-                                    });
-                                });
-                                opts
-                            });
-                            m.components(|c| {
-                                c.add_action_row(ar);
-                                c
-                            });
-                            m
-                        })
-                        .await
-                        .unwrap();
-                }
-                Commands::PowerOn => todo!(),
-                Commands::PowerOff => todo!(),
-            },
-            Err(_) => return,
-        }
+        let mut cmd = match Commands::from_str(&msg.content) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("could not parse command: {}", e);
+                return;
+            }
+        };
+
+        let m = msg
+            .channel_id
+            .send_message(&ctx, |m| {
+                cmd.create_message(m);
+                m
+            })
+            .await
+            .unwrap();
+
+        cmd.collect_interactions(
+            &ctx,
+            m.await_component_interactions(&ctx)
+                .timeout(INTERACTION_TIMEOUT),
+        )
+        .await;
     }
 }
 
