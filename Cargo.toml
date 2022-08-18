@@ -3,6 +3,7 @@ members = [
   "mattori-home-peripherals",
   "mattori-home-cli",
   "mattori-home-discord",
+  "mattori-home-web",
 ]
 
 [profile.release]
