@@ -2,8 +2,8 @@
 members = [
   "mattori-home-peripherals",
   "mattori-home-cli",
-  "mattori-home-discord",
   "mattori-home-web",
+  "mattori-home-web-front"
 ]
 
 [profile.release]
